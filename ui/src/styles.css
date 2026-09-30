@@ -1,0 +1,161 @@
+@import "tailwindcss";
+/* Victor Mono: narrow advance (more result columns fit) and cursive italics (used for nulls). */
+@import "@fontsource/victor-mono/400.css";
+@import "@fontsource/victor-mono/400-italic.css";
+@import "@fontsource/victor-mono/600.css";
+
+/*
+ * Design tokens.
+ *
+ * "desk" is the chrome around the work, "paper" is where code and results live, so content
+ * surfaces always read as the brightest (light theme) or most lifted (dark theme) layer.
+ * The only saturated colour in the chrome is the active language's hue (--accent).
+ */
+:root {
+  color-scheme: light;
+
+  --desk: #e7eaee;
+  --desk-raised: #dde1e6;
+  --paper: #fafbfc;
+  --ink: #1a1f28;
+  --pencil: #5a6372;
+  --faint: #8a93a1;
+  --rule: #d0d6de;
+  --danger: #c2362f;
+  --ok: #2f8a4c;
+
+  --lang-csharp: #6e4bd8;
+  --lang-fsharp: #1b8277;
+  --lang-java: #c25a12;
+  --lang-kotlin: #a83da6;
+  --lang-go: #0a86a6;
+  --lang-typescript: #2f6cc0;
+  --lang-javascript: #9a7f0c;
+  --lang-python: #3e8a2e;
+  --lang-rust: #a8401f;
+  --lang-sql: #be3f5e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --desk: #15181e;
+    --desk-raised: #1a1e25;
+    --paper: #1d2129;
+    --ink: #dde2ea;
+    --pencil: #8c95a5;
+    --faint: #5d6676;
+    --rule: #2b313c;
+    --danger: #ef6b62;
+    --ok: #5cc27e;
+
+    --lang-csharp: #a48af7;
+    --lang-fsharp: #3db8aa;
+    --lang-java: #f08a45;
+    --lang-kotlin: #de77db;
+    --lang-go: #3cc2e3;
+    --lang-typescript: #6aa2ec;
+    --lang-javascript: #e3c645;
+    --lang-python: #79be58;
+    --lang-rust: #db6b4e;
+    --lang-sql: #e57d94;
+  }
+}
+
+/* The active language tints the workspace through a single custom property. */
+[data-language="csharp"] {
+  --accent: var(--lang-csharp);
+}
+[data-language="fsharp"] {
+  --accent: var(--lang-fsharp);
+}
+[data-language="java"] {
+  --accent: var(--lang-java);
+}
+[data-language="kotlin"] {
+  --accent: var(--lang-kotlin);
+}
+[data-language="go"] {
+  --accent: var(--lang-go);
+}
+[data-language="typescript"] {
+  --accent: var(--lang-typescript);
+}
+[data-language="javascript"] {
+  --accent: var(--lang-javascript);
+}
+[data-language="python"] {
+  --accent: var(--lang-python);
+}
+[data-language="rust"] {
+  --accent: var(--lang-rust);
+}
+[data-language="sql"] {
+  --accent: var(--lang-sql);
+}
+
+@theme inline {
+  --color-desk: var(--desk);
+  --color-desk-raised: var(--desk-raised);
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-pencil: var(--pencil);
+  --color-faint: var(--faint);
+  --color-rule: var(--rule);
+  --color-accent: var(--accent, var(--pencil));
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --color-lang-csharp: var(--lang-csharp);
+  --color-lang-go: var(--lang-go);
+  --color-lang-sql: var(--lang-sql);
+
+  --font-ui:
+    "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    Cantarell, Ubuntu, system-ui, sans-serif;
+  --font-code: "Victor Mono", ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+
+  /* Dense desktop scale: 11 status, 12 secondary, 13 body, 15 emphasis. */
+  --text-2xs: 11px;
+  --text-2xs--line-height: 16px;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 20px;
+  --text-base: 15px;
+  --text-base--line-height: 22px;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    overflow: hidden;
+    background: var(--desk);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0s !important;
+      animation-duration: 0s !important;
+    }
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "common": {
+    "notAvailableYet": "Aún no disponible"
+  },
+  "menu": {
+    "label": "Menú de la aplicación",
+    "file": "Archivo",
+    "edit": "Edición",
+    "query": "Consulta",
+    "view": "Ver",
+    "tools": "Herramientas",
+    "help": "Ayuda"
+  },
+  "explorer": {
+    "label": "Explorador",
+    "connections": {
+      "title": "Conexiones",
+      "add": "Añadir conexión",
+      "empty": "Todavía no hay conexiones."
+    },
+    "scripts": {
+      "title": "Mis scripts",
+      "search": "Buscar scripts",
+      "empty": "Los scripts que guardes aparecerán aquí."
+    },
+    "samples": {
+      "title": "Ejemplos"
+    }
+  },
+  "tabs": {
+    "label": "Scripts abiertos",
+    "untitled": "Sin título {{index}}",
+    "new": "Nuevo script (Ctrl+N)"
+  },
+  "toolbar": {
+    "label": "Barra de herramientas del script",
+    "language": "Lenguaje",
+    "mode": "Modo",
+    "connection": "Conexión",
+    "noConnection": "Sin conexión",
+    "run": "Ejecutar",
+    "runHint": "Ejecutar (F5)",
+    "stop": "Detener",
+    "stopHint": "Detener (Mayús+F5)",
+    "elapsed": "Tiempo transcurrido"
+  },
+  "modes": {
+    "expression": "Expresión",
+    "statements": "Sentencias",
+    "program": "Programa",
+    "script": "Script",
+    "module": "Módulo",
+    "sql": "SQL"
+  },
+  "editor": {
+    "label": "Editor de código",
+    "placeholder": "Escribe aquí tu código {{language}}. Pulsa F5 para ejecutarlo."
+  },
+  "results": {
+    "label": "Resultados",
+    "tabs": {
+      "results": "Resultados",
+      "sql": "SQL",
+      "ir": "IR",
+      "tree": "Árbol",
+      "log": "Registro"
+    },
+    "empty": {
+      "results": "Ejecuta un script para ver aquí su salida.",
+      "sql": "Aquí aparece el SQL que genera tu script.",
+      "ir": "Aquí aparece la salida compilada (IL, bytecode, ensamblador o JavaScript).",
+      "tree": "Aquí aparece el árbol sintáctico de tu script.",
+      "log": "Aquí aparecen los mensajes del compilador y los diagnósticos."
+    }
+  },
+  "status": {
+    "label": "Estado",
+    "kernelIdle": "Ningún kernel en ejecución",
+    "noConnection": "Sin conexión",
+    "position": "Lín {{line}}, Col {{column}}",
+    "encoding": "UTF-8",
+    "version": "PolyPad {{version}}",
+    "versionUnavailable": "Versión no disponible"
+  }
+}
