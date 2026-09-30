@@ -8,7 +8,7 @@
 //!
 //! Every file is written atomically. Loading never drops a snapshot: buffers the session does not
 //! list (a crash between two writes) come back as extra tabs, and unreadable files are moved
-//! aside instead of deleted. See docs/adr/0008.
+//! aside instead of deleted. See docs/adr/0007.
 
 use std::{
     collections::BTreeMap,

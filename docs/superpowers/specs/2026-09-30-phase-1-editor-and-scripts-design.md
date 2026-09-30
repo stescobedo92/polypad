@@ -84,7 +84,7 @@ lives in `State<'_, AppState>` and no lock is held across an `.await`.
 | `journal_buffer`, `discard_buffer`, `set_session` | Recovery journal updates. |
 | `ready_to_close` | The UI finished flushing the journal; the window may close. |
 | `choose_scripts_folder` | Native folder picker (opened from Rust) and root switch. |
-| `save_layout` | Persist panel sizes. |
+| `update_preferences` | Persist the UI preferences (panel sizes, key bindings, last language). |
 
 Events: `ScriptsChanged { paths, rescan }` and `FlushRequested`.
 
@@ -242,7 +242,7 @@ own: the layout stores them at their collapsed size.
   vertical `editor | results`. Explorer and results are collapsible.
 - Sizes come from `workspace_snapshot` as `defaultLayout` (a `{ panelId: percent }` map per
   group, keyed by group id as in §5.5); `onLayoutChanged` with `isUserInteraction` saves them
-  through a debounced `save_layout`. A collapsed panel is stored as its collapsed size.
+  through a debounced `update_preferences`. A collapsed panel is stored as its collapsed size.
 - `tauri-plugin-window-state` persists size, position and maximized state (not visibility). The
   window starts hidden and is shown after restoration to avoid a flash.
 
@@ -303,8 +303,9 @@ own: the layout stores them at their collapsed size.
 - **Paths:** confinement rules in §5.2; the WebView never handles absolute paths.
 - **Capabilities:** only new `allow-<command>` entries; no plugin permission reaches the WebView.
 - **Logging:** paths are logged relative to the root; script contents are never logged.
-- **ADRs:** update ADR-0003 (CSP), add ADR-0006 (`.ppad` format), ADR-0007 (editor choice and the
-  Phase 6 spike), ADR-0008 (save and recovery model).
+- **ADRs:** ADR-0006 (`.ppad` format) and ADR-0007 (scripts workspace, saving and recovery,
+  amending ADR-0002 and ADR-0003) in PR 1a; ADR-0008 (editor choice, the CSP change and the
+  Phase 6 spike) in PR 1b.
 
 ## 8. Error handling
 

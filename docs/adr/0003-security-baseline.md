@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-30
+- **Amended by:** ADR-0007 (workspace command permissions, Rust-only plugins)
 
 ## Context
 
