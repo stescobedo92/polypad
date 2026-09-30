@@ -91,7 +91,11 @@ fn start_workspace(app: &App) {
     };
     app.manage(CloseGuard::default());
     app.manage(Workspace::load(&dirs));
-    workspace::watch_scripts(app.handle());
+    // Starting a watcher walks the whole folder on Windows and macOS: keep it off the thread
+    // that has to draw the first frame.
+    let handle = app.handle().clone();
+    std::thread::spawn(move || workspace::watch_scripts(&handle));
+    workspace::reconcile_periodically(app.handle());
 }
 
 /// Shows the main window, which starts hidden so it never flashes at its default geometry.

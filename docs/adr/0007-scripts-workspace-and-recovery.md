@@ -49,11 +49,14 @@ the operating system trash.
 
 **External changes are hints.** `notify` 8.2 with `notify-debouncer-full` reports batches
 (changed paths, renames paired within the root, a rescan flag). Consumers re-read what a batch
-mentions and everything on a rescan; a watcher that reports errors is replaced after two seconds,
-because notify can stop watching after some Windows errors and drops events when its buffer
-overflows. The UI also reconciles when the window regains focus. Hidden entries (including the
-temporary files of atomic writes and `.git`) never produce events. Own writes need no special
-case: after a save, the tab's stamp already matches the disk.
+mentions and everything on a rescan. A watcher that reports errors (inotify, FSEvents) is replaced
+after two seconds; only the latest watcher's failure may restart it. notify's Windows backend,
+however, never reports its errors or buffer overflows: it logs them and may stop watching. So
+Rust also asks the UI to re-read everything every 30 seconds, and the UI reconciles when the
+window regains focus; a lost change is noticed within 30 seconds at worst. Hidden entries
+(including the temporary files of atomic writes and `.git`) never produce events. Own writes need
+no special case: after a save, the tab's stamp already matches the disk. Starting a watcher walks
+the folder (file ids for rename pairing), so it runs off the main thread.
 
 **Nothing blocks start-up.** Preferences fall back to defaults (an invalid file is moved aside);
 the configured scripts folder falls back to `Documents/PolyPad` (then `~/PolyPad`), and without a
@@ -87,8 +90,9 @@ access does not go through capabilities and the store enforces its own confineme
   tested without a WebView, including escape attempts and real file watching.
 - A save can still lose an external change that lands between the stamp check and the rename (a
   window of milliseconds); locking would block other editors, so it is accepted.
-- On macOS, FSEvents does not always pair renames; the tab then shows "deleted on disk" instead of
-  following the file. Linux may miss files created inside a brand-new folder before it is watched;
+- Renames are not always paired: FSEvents (macOS) pairs only some, and Windows reports a move
+  between folders as two separate paths. The tab then shows "deleted on disk" instead of following
+  the file. Linux may miss files created inside a brand-new folder before it is watched;
   the folder itself is reported and re-read.
 - The `trash` crate warns that its Linux implementation calls non-thread-safe `getmntent`
   functions behind a mutex; PolyPad does not call them elsewhere.

@@ -6,7 +6,10 @@
 
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock},
+    sync::{
+        Arc, Mutex, MutexGuard, PoisonError, RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
     thread,
     time::Duration,
 };
@@ -28,6 +31,13 @@ use crate::{
 
 /// Pause before replacing a watcher that failed.
 const WATCHER_RESTART_DELAY: Duration = Duration::from_secs(2);
+
+/// How often the UI is asked to re-read everything, whatever the watcher reports.
+///
+/// notify's Windows backend never reports its errors or buffer overflows (it logs them and may
+/// stop watching), so events alone could miss changes for the rest of the session; this bounds
+/// that to one interval.
+pub const RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Name of the scripts folder created in the user's documents.
 pub const DEFAULT_FOLDER_NAME: &str = "PolyPad";
@@ -87,6 +97,8 @@ pub struct WorkspaceDirs {
 pub struct Workspace {
     store: RwLock<Option<Arc<ScriptStore>>>,
     watcher: Mutex<Option<ScriptWatcher>>,
+    /// Bumped by every watcher start, so only the latest watcher's failure restarts it.
+    watcher_generation: AtomicU64,
     journal: Option<RecoveryJournal>,
     preferences_file: Option<PreferencesFile>,
     preferences: Mutex<Preferences>,
@@ -134,6 +146,7 @@ impl Workspace {
         Self {
             store: RwLock::new(store),
             watcher: Mutex::new(None),
+            watcher_generation: AtomicU64::new(0),
             journal,
             preferences_file,
             preferences: Mutex::new(preferences),
@@ -220,38 +233,62 @@ impl Workspace {
 
 /// Starts watching the current scripts folder, replacing any previous watcher.
 ///
-/// A watcher that reports errors may have stopped (notify unwatches on some Windows errors), so
-/// the UI is told to re-read everything and a new watcher replaces it after a short pause.
+/// A watcher that reports errors may have stopped (notify unwatches after some errors), so the
+/// UI is told to re-read everything and a new watcher replaces it after a short pause. Blocking:
+/// starting a watcher walks the folder on Windows and macOS.
 pub fn watch_scripts(app: &AppHandle) {
     let Some(workspace) = app.try_state::<Workspace>() else {
         return;
     };
+    // Held while the store is read and the watcher started, so a restart racing with a folder
+    // switch cannot install a watcher on the previous folder after the new one.
+    let mut slot = workspace.watcher();
+    let generation = workspace.watcher_generation.fetch_add(1, Ordering::AcqRel) + 1;
     let Some(store) = workspace.store() else {
-        *workspace.watcher() = None;
+        *slot = None;
         return;
     };
     let handle = app.clone();
     let started = ScriptWatcher::start(store.root(), move |event| match event {
         WatchEvent::Changes(changes) => emit(&handle, &ScriptsChanged(changes)),
         WatchEvent::Failed => {
-            let rescan = ScriptChanges {
-                rescan: true,
-                ..ScriptChanges::default()
-            };
-            emit(&handle, &ScriptsChanged(rescan));
+            emit(&handle, &ScriptsChanged(ScriptChanges::rescan()));
             // Not from this thread: it belongs to the watcher being replaced.
             let handle = handle.clone();
             thread::spawn(move || {
                 thread::sleep(WATCHER_RESTART_DELAY);
-                watch_scripts(&handle);
+                restart_watcher(&handle, generation);
             });
         }
     });
-    *workspace.watcher() = started
+    *slot = started
         .inspect_err(|error| {
             tracing::warn!(error = %DisplayChain(error), "external changes will not be noticed");
         })
         .ok();
+}
+
+/// Replaces the watcher of `generation` unless a newer one already replaced it; every failure
+/// report schedules a restart, and only the first of them may act.
+fn restart_watcher(app: &AppHandle, generation: u64) {
+    let Some(workspace) = app.try_state::<Workspace>() else {
+        return;
+    };
+    if workspace.watcher_generation.load(Ordering::Acquire) == generation {
+        watch_scripts(app);
+    }
+}
+
+/// Asks the UI to re-read the scripts folder every [`RECONCILE_INTERVAL`] for the rest of the
+/// session, covering events the platform watcher lost.
+pub fn reconcile_periodically(app: &AppHandle) {
+    let app = app.clone();
+    thread::spawn(move || {
+        loop {
+            thread::sleep(RECONCILE_INTERVAL);
+            emit(&app, &ScriptsChanged(ScriptChanges::rescan()));
+        }
+    });
 }
 
 #[cfg(test)]

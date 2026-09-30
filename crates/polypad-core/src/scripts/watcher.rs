@@ -127,6 +127,15 @@ enum Relative {
 }
 
 impl ScriptChanges {
+    /// A batch that only asks consumers to re-read everything.
+    #[must_use]
+    pub fn rescan() -> Self {
+        Self {
+            rescan: true,
+            ..Self::default()
+        }
+    }
+
     /// Whether the batch carries nothing to act on.
     #[must_use]
     pub fn is_empty(&self) -> bool {

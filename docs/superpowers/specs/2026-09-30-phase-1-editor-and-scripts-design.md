@@ -174,8 +174,9 @@ top.Dump("Top orders");
   debouncer thread forwards batches through a `tokio::sync::mpsc` channel to a task that emits
   `ScriptsChanged`.
 - Events are **hints**: the UI reloads the tree through `list_scripts`. The app also reconciles
-  after any watcher error (and restarts the watcher), on `Rescan`, and whenever the window regains
-  focus. This covers notify 8.2 dropping events on Windows buffer overflows.
+  after a reported watcher error (and restarts the watcher), on `Rescan`, whenever the window
+  regains focus, and every 30 seconds: notify 8.2's Windows backend reports neither its errors nor
+  buffer overflows, so the periodic rescan bounds how long a lost change goes unnoticed.
 - **Own writes are ignored:** the store keeps the last known stamp per path (BLAKE3 hash of the
   file bytes); a change whose current stamp equals the known one is not external.
 - **Open tabs** affected by a change ask `script_status`:
@@ -334,8 +335,9 @@ own: the layout stores them at their collapsed size.
   - `scripts`: `ScriptPath` validation table; store operations on temporary folders; escape
     attempts with `..`, absolute paths and symlinks; conflict detection; trash integration behind
     a trait so tests do not touch the real trash.
-  - Watcher: external create, modify, rename and delete are observed (generous timeouts; one
-    `#[ignore]`d stress test for overflow and rescan).
+  - Watcher: external create, modify, rename and delete are observed (generous timeouts). No
+    overflow stress test: on Windows notify reports overflows to nobody, so the periodic rescan,
+    not the watcher, is what bounds a lost change.
   - `recovery` and `preferences`: round trips, orphan buffers, corrupt files.
   - Commands: serialization of `CommandError` variants; bindings stay up to date.
 - **UI (Vitest + Testing Library):** stores; keybinding dispatcher (including events from a
