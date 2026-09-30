@@ -26,6 +26,8 @@ polypad-secrets = { path = "crates/polypad-secrets" }
 atomic-write-file = "0.3.1"
 blake3 = "1.8.7"
 dunce = "1.0.5"
+notify = "8.2.0"
+notify-debouncer-full = "0.7.0"
 same-file = "1.0.6"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
