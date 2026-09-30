@@ -27,7 +27,11 @@ pub struct EntryName(String);
 pub struct ScriptPath(String);
 
 /// Why a name or path is not acceptable.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+///
+/// Serialized as `{ "kind": "invalidCharacter", "character": ":" }` so the UI can explain it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", content = "character", rename_all = "camelCase")]
 #[non_exhaustive]
 pub enum NameError {
     /// The name, or a path component, is empty.

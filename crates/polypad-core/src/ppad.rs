@@ -55,6 +55,8 @@ pub struct Header {
     /// Namespaces or modules imported implicitly.
     pub imports: Vec<String>,
     /// Header fields this build does not know, kept so that saving never drops them.
+    #[serde(with = "json_text")]
+    #[cfg_attr(feature = "specta", specta(type = String))]
     pub extra: Map<String, Value>,
 }
 
@@ -67,7 +69,31 @@ pub struct PackageRef {
     /// Requested version; `None` lets the resolver choose.
     pub version: Option<String>,
     /// Fields this build does not know.
+    #[serde(with = "json_text")]
+    #[cfg_attr(feature = "specta", specta(type = String))]
     pub extra: Map<String, Value>,
+}
+
+/// Unknown fields leave Rust as JSON text: the UI never interprets them, and a JavaScript number
+/// would round integers above 2^53, changing the file on the next save.
+mod json_text {
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _, ser::Error as _};
+    use serde_json::{Map, Value};
+
+    pub fn serialize<S: Serializer>(
+        fields: &Map<String, Value>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let text = serde_json::to_string(fields).map_err(S::Error::custom)?;
+        serializer.serialize_str(&text)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Map<String, Value>, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        serde_json::from_str(&text).map_err(D::Error::custom)
+    }
 }
 
 /// Line ending of the header and separator.
@@ -555,6 +581,25 @@ mod tests {
         let reread = parsed(&written).document.header;
         assert_eq!(reread.language, Language::Go);
         assert_eq!(reread.packages[0].name, "uuid");
+    }
+
+    #[test]
+    fn unknown_fields_cross_the_ipc_boundary_as_exact_json_text() {
+        let text = "{\"ppad\":1,\"language\":\"go\",\"id\":12345678901234567890,                    \"packages\":[{\"name\":\"uuid\",\"size\":9007199254740993}]}
+---
+";
+        let header = parsed(text).document.header;
+
+        let over_ipc = serde_json::to_value(&header).unwrap();
+        let back: Header = serde_json::from_value(over_ipc.clone()).unwrap();
+
+        // A JavaScript number would round both integers; text keeps every digit.
+        assert_eq!(over_ipc["extra"], json!("{\"id\":12345678901234567890}"));
+        assert_eq!(
+            over_ipc["packages"][0]["extra"],
+            json!("{\"size\":9007199254740993}")
+        );
+        assert_eq!(back, header);
     }
 
     #[test]

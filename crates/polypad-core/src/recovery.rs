@@ -77,6 +77,8 @@ pub struct BufferSnapshot {
     /// The unsaved document.
     pub document: Document,
     /// When the snapshot was taken, in milliseconds since the Unix epoch.
+    // A JavaScript number holds any millisecond timestamp exactly (below 2^53).
+    #[cfg_attr(feature = "specta", specta(type = f64))]
     pub updated_at: u64,
 }
 
