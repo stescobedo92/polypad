@@ -1,53 +1,44 @@
-/** Execution modes a kernel can offer (spec section 5). */
-export const EXECUTION_MODES = [
-  "expression",
-  "statements",
-  "program",
-  "script",
-  "module",
-  "sql",
-] as const;
+import { LANGUAGE_MODES, type ExecutionMode, type LanguageId } from "./ipc";
 
-export type ExecutionMode = (typeof EXECUTION_MODES)[number];
+export type { ExecutionMode, LanguageId };
 
-export interface LanguageDefinition {
+type LineComment = "//" | "#" | "--";
+
+/**
+ * What the UI adds to the language catalogue that comes from Rust (ids and modes). Listing a
+ * presentation for every id is checked by the compiler, so a language added in Rust cannot
+ * reach the UI without a label.
+ */
+const PRESENTATION = {
+  csharp: { label: "C#", lineComment: "//" },
+  fsharp: { label: "F#", lineComment: "//" },
+  java: { label: "Java", lineComment: "//" },
+  kotlin: { label: "Kotlin", lineComment: "//" },
+  go: { label: "Go", lineComment: "//" },
+  typescript: { label: "TypeScript", lineComment: "//" },
+  javascript: { label: "JavaScript", lineComment: "//" },
+  python: { label: "Python", lineComment: "#" },
+  rust: { label: "Rust", lineComment: "//" },
+  sql: { label: "SQL", lineComment: "--" },
+} as const satisfies Record<LanguageId, { label: string; lineComment: LineComment }>;
+
+export interface Language {
   /** Stable identifier; also the value of the `data-language` attribute that sets the accent. */
-  readonly id: string;
+  readonly id: LanguageId;
   /** Proper name shown in the UI. Language names are not translated. */
   readonly label: string;
   /** Modes in the order they are offered; the first one is the default. */
   readonly modes: readonly [ExecutionMode, ...ExecutionMode[]];
   /** Token that starts a line comment. */
-  readonly lineComment: "//" | "#" | "--";
+  readonly lineComment: LineComment;
 }
 
-export const LANGUAGES = [
-  { id: "csharp", label: "C#", modes: ["statements", "expression", "program"], lineComment: "//" },
-  { id: "fsharp", label: "F#", modes: ["script", "expression"], lineComment: "//" },
-  { id: "java", label: "Java", modes: ["statements", "expression", "program"], lineComment: "//" },
-  { id: "kotlin", label: "Kotlin", modes: ["script"], lineComment: "//" },
-  { id: "go", label: "Go", modes: ["statements", "program"], lineComment: "//" },
-  {
-    id: "typescript",
-    label: "TypeScript",
-    modes: ["statements", "expression", "module"],
-    lineComment: "//",
-  },
-  {
-    id: "javascript",
-    label: "JavaScript",
-    modes: ["statements", "expression", "module"],
-    lineComment: "//",
-  },
-  { id: "python", label: "Python", modes: ["script", "expression"], lineComment: "#" },
-  { id: "rust", label: "Rust", modes: ["statements"], lineComment: "//" },
-  { id: "sql", label: "SQL", modes: ["sql"], lineComment: "--" },
-] as const satisfies readonly LanguageDefinition[];
-
-export type LanguageId = (typeof LANGUAGES)[number]["id"];
-
-/** A catalogue entry with its identifier narrowed to the known ids. */
-export type Language = LanguageDefinition & { readonly id: LanguageId };
+/** Every language, in the order the backend lists them. */
+export const LANGUAGES: readonly Language[] = LANGUAGE_MODES.map(({ language, modes }) => ({
+  id: language,
+  modes,
+  ...PRESENTATION[language],
+}));
 
 export const DEFAULT_LANGUAGE: LanguageId = "csharp";
 
