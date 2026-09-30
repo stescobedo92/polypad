@@ -6,5 +6,6 @@
 pub mod atomic_fs;
 pub mod language;
 pub mod ppad;
+pub mod recovery;
 pub mod scripts;
 pub mod telemetry;
