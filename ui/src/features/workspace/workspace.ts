@@ -19,6 +19,8 @@ import {
   type LanguageId,
   type LoadedScript,
   type Newline,
+  type RecoveredSession,
+  type RecoveredTab,
   type ScriptChanges,
   type ScriptPath,
   type Session,
@@ -55,6 +57,11 @@ export interface Tab {
   readonly id: BufferId;
   /** The script; `null` for an untitled one. */
   readonly path: ScriptPath | null;
+  /**
+   * For work recovered from a scripts folder that is not open now: the script it edited there,
+   * shown as a hint. Such a tab is untitled and can only be saved under a new name.
+   */
+  readonly previousPath: ScriptPath | null;
   /** Numbers untitled tabs ("Untitled 2"). */
   readonly untitledNumber: number | null;
   readonly header: Header;
@@ -119,6 +126,12 @@ export interface Workspace {
    * A rescan checks every open script.
    */
   reconcile(changes: ScriptChanges): Promise<void>;
+  /**
+   * Reopens the tabs of the previous session: clean ones from disk, unsaved ones from their
+   * journal snapshot (with a conflict if the file changed meanwhile). Clean tabs whose file is
+   * gone are skipped and reported.
+   */
+  restore(session: RecoveredSession): Promise<{ readonly skipped: readonly ScriptPath[] }>;
   /** Writes pending journal snapshots now (the window is closing). */
   flushJournal(): Promise<void>;
   /** Resolves once the background writes started so far have finished. */
@@ -310,6 +323,91 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
     }
   }
 
+  /** How the file of recovered work relates to the snapshot's base stamp. */
+  async function diskOf(
+    path: ScriptPath,
+    baseStamp: ContentStamp | null,
+  ): Promise<{ saved: Document | null; disk: DiskState; diskStamp: ContentStamp | null }> {
+    try {
+      const loaded = await ipc.openScript(path);
+      const changed = loaded.stamp !== baseStamp;
+      return {
+        saved: loaded.document,
+        disk: changed ? "changed" : "same",
+        diskStamp: changed ? loaded.stamp : null,
+      };
+    } catch {
+      // Unreadable or gone: the stamp alone tells which.
+      const status = await ipc.scriptStatus(path).catch(() => null);
+      if (status === null) {
+        return { saved: null, disk: baseStamp === null ? "same" : "missing", diskStamp: null };
+      }
+      return {
+        saved: null,
+        disk: status === baseStamp ? "same" : "changed",
+        diskStamp: status === baseStamp ? null : status,
+      };
+    }
+  }
+
+  async function restoreTab(recovered: RecoveredTab): Promise<Tab | null> {
+    const { bufferId: id, path, previousPath, snapshot } = recovered;
+    if (snapshot === null) {
+      if (path === null) {
+        return null;
+      }
+      let loaded: LoadedScript;
+      try {
+        loaded = await ipc.openScript(path);
+      } catch {
+        return null;
+      }
+      const { header, code, newline } = loaded.document;
+      buffers.create(id, header.language, code);
+      return {
+        id,
+        path,
+        previousPath: null,
+        untitledNumber: null,
+        header,
+        newline,
+        baseStamp: loaded.stamp,
+        modified: loaded.normalized,
+        disk: "same",
+        diskStamp: null,
+        savedHeader: header,
+        forcedModified: loaded.normalized,
+      };
+    }
+
+    const { header, code, newline } = snapshot.document;
+    const onDisk =
+      path === null
+        ? { saved: null, disk: "same" as const, diskStamp: null }
+        : await diskOf(path, snapshot.baseStamp);
+    // What is on disk is the saved state, so undoing the recovered work returns to it.
+    buffers.create(id, header.language, onDisk.saved?.code ?? "", code);
+    journaled.add(id);
+    if (path === null) {
+      untitledCount += 1;
+    }
+    const savedHeader = onDisk.saved?.header ?? header;
+    return {
+      id,
+      path,
+      previousPath,
+      untitledNumber: path === null ? untitledCount : null,
+      header,
+      newline,
+      baseStamp: path === null ? null : snapshot.baseStamp,
+      modified: buffers.isModified(id) || !sameHeader(header, savedHeader),
+      disk: onDisk.disk,
+      diskStamp: onDisk.diskStamp,
+      savedHeader,
+      forcedModified: false,
+    };
+  }
+
   function addTab(tab: Tab): void {
     store.setState((state) => ({ tabs: [...state.tabs, tab], activeId: tab.id }));
     persistSession();
@@ -361,6 +459,7 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
       addTab({
         id,
         path,
+        previousPath: null,
         untitledNumber: null,
         header,
         newline,
@@ -381,6 +480,7 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
       addTab({
         id,
         path: null,
+        previousPath: null,
         untitledNumber: untitledCount,
         header,
         newline: "lf",
@@ -437,7 +537,12 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
       if (tab === undefined) throw new Error(`no tab ${id}`);
       const document = documentOf(tab);
       const created = await ipc.createScript(parent, scriptFileName(name), document);
-      updateTab(id, (latest) => ({ ...latest, path: created.path, untitledNumber: null }));
+      updateTab(id, (latest) => ({
+        ...latest,
+        path: created.path,
+        previousPath: null,
+        untitledNumber: null,
+      }));
       markSaved(id, document, created.stamp);
       persistSession();
       return created.path;
@@ -490,6 +595,26 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
 
     setMode(id, mode) {
       changeHeader(id, (header) => ({ ...header, mode }));
+    },
+
+    async restore(session) {
+      const skipped: ScriptPath[] = [];
+      for (const recovered of session.tabs) {
+        const tab = await restoreTab(recovered);
+        if (tab === null) {
+          if (recovered.path !== null) skipped.push(recovered.path);
+          continue;
+        }
+        store.setState((state) => ({ tabs: [...state.tabs, tab] }));
+      }
+      const { tabs } = store.getState();
+      store.setState({
+        activeId: tabs.some((tab) => tab.id === session.active)
+          ? session.active
+          : (tabs.at(-1)?.id ?? null),
+      });
+      persistSession();
+      return { skipped };
     },
 
     flushJournal() {

@@ -489,3 +489,164 @@ describe("changes made by other programs", () => {
     expect([tab("b1")?.disk, tab("b2")?.disk]).toEqual(["missing", "missing"]);
   });
 });
+
+describe("restoring the previous session", () => {
+  function unsaved(path: string | null, code: string, baseStamp: string | null) {
+    return {
+      path,
+      baseStamp,
+      document: { header: headerFor("csharp"), code, newline: "lf" as const },
+      updatedAt: 1,
+    };
+  }
+
+  it("reopens clean tabs from disk and unsaved ones from the journal, in order", async () => {
+    const { backend, buffers, workspace, state, tab } = setup();
+    const clean = backend.write("clean.ppad", "on disk");
+    const edited = backend.write("edited.ppad", "disk version");
+
+    const outcome = await workspace.restore({
+      tabs: [
+        { bufferId: "r1", path: "clean.ppad", previousPath: null, snapshot: null },
+        {
+          bufferId: "r2",
+          path: "edited.ppad",
+          previousPath: null,
+          snapshot: unsaved("edited.ppad", "unsaved edit", edited),
+        },
+        {
+          bufferId: "r3",
+          path: null,
+          previousPath: null,
+          snapshot: unsaved(null, "untitled draft", null),
+        },
+      ],
+      active: "r2",
+    });
+
+    expect(outcome.skipped).toEqual([]);
+    expect(state().tabs.map((t) => t.id)).toEqual(["r1", "r2", "r3"]);
+    expect(state().activeId).toBe("r2");
+    expect(tab("r1")).toEqual(
+      expect.objectContaining({ path: "clean.ppad", baseStamp: clean, modified: false }),
+    );
+    expect(tab("r2")).toEqual(
+      expect.objectContaining({ baseStamp: edited, modified: true, disk: "same" }),
+    );
+    expect(buffers.text("r2")).toBe("unsaved edit");
+    expect(tab("r3")).toEqual(
+      expect.objectContaining({ path: null, untitledNumber: 1, modified: true }),
+    );
+    expect(buffers.text("r3")).toBe("untitled draft");
+  });
+
+  it("undoing recovered work returns to what is on disk", async () => {
+    const { backend, buffers, workspace, tab } = setup();
+    const stamp = backend.write("a.ppad", "disk version");
+    await workspace.restore({
+      tabs: [
+        {
+          bufferId: "r1",
+          path: "a.ppad",
+          previousPath: null,
+          snapshot: unsaved("a.ppad", "unsaved", stamp),
+        },
+      ],
+      active: null,
+    });
+
+    buffers.edit("r1", "disk version");
+
+    expect(tab("r1")?.modified).toBe(false);
+  });
+
+  it("skips clean tabs whose file is gone and reports them", async () => {
+    const { workspace, state } = setup();
+
+    const outcome = await workspace.restore({
+      tabs: [{ bufferId: "r1", path: "gone.ppad", previousPath: null, snapshot: null }],
+      active: "r1",
+    });
+
+    expect(outcome.skipped).toEqual(["gone.ppad"]);
+    expect(state().tabs).toEqual([]);
+    expect(state().activeId).toBeNull();
+  });
+
+  it("shows a conflict when the file changed while PolyPad was closed", async () => {
+    const { backend, workspace, tab } = setup();
+    backend.write("a.ppad", "base");
+    const newer = backend.write("a.ppad", "changed while closed");
+
+    await workspace.restore({
+      tabs: [
+        {
+          bufferId: "r1",
+          path: "a.ppad",
+          previousPath: null,
+          snapshot: unsaved("a.ppad", "mine", "stamp-1"),
+        },
+      ],
+      active: null,
+    });
+
+    expect(tab("r1")).toEqual(expect.objectContaining({ disk: "changed", diskStamp: newer }));
+  });
+
+  it("marks recovered work missing when its file was deleted", async () => {
+    const { workspace, tab, buffers } = setup();
+
+    await workspace.restore({
+      tabs: [
+        {
+          bufferId: "r1",
+          path: "a.ppad",
+          previousPath: null,
+          snapshot: unsaved("a.ppad", "mine", "stamp-9"),
+        },
+      ],
+      active: null,
+    });
+
+    expect(tab("r1")).toEqual(expect.objectContaining({ disk: "missing", modified: true }));
+    expect(buffers.text("r1")).toBe("mine");
+  });
+
+  it("brings detached work back untitled with its previous path as a hint", async () => {
+    const { backend, workspace, tab } = setup();
+    backend.write("orders.ppad", "an unrelated script in this folder");
+
+    await workspace.restore({
+      tabs: [
+        {
+          bufferId: "r1",
+          path: null,
+          previousPath: "orders.ppad",
+          snapshot: unsaved(null, "work from another folder", null),
+        },
+      ],
+      active: null,
+    });
+
+    expect(tab("r1")).toEqual(
+      expect.objectContaining({ path: null, previousPath: "orders.ppad", modified: true }),
+    );
+    await expect(workspace.save("r1")).resolves.toBe("needs-name");
+  });
+
+  it("forgets recovered work when its tab is discarded", async () => {
+    const { backend, workspace } = setup();
+    backend.journal.set("r1", unsaved(null, "draft", null));
+    await workspace.restore({
+      tabs: [
+        { bufferId: "r1", path: null, previousPath: null, snapshot: unsaved(null, "draft", null) },
+      ],
+      active: null,
+    });
+
+    await workspace.discardAndClose("r1");
+    await workspace.settled();
+
+    expect(backend.journal.has("r1")).toBe(false);
+  });
+});
