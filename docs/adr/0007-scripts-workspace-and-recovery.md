@@ -96,9 +96,10 @@ access does not go through capabilities and the store enforces its own confineme
   instances would share the recovery journal and one could discard the other's unsaved work.
 - The close handshake covers closing the window. Quitting through the application menu on macOS
   (Cmd+Q) may exit without `CloseRequested`; the journal's one-second bound still holds.
-- Renames are not always paired: FSEvents (macOS) pairs only some, and Windows reports a move
-  between folders as two separate paths. The tab then shows "deleted on disk" instead of following
-  the file. Linux may miss files created inside a brand-new folder before it is watched;
+- Renames are not always paired: FSEvents (macOS) pairs only some and may report only the new
+  name (or just ask for a rescan), and Windows reports a move between folders as two separate
+  paths. The tab then shows "deleted on disk" instead of following the file, at the latest after
+  the next reconciliation. Linux may miss files created inside a brand-new folder before it is watched;
   the folder itself is reported and re-read.
 - The `trash` crate warns that its Linux implementation calls non-thread-safe `getmntent`
   functions behind a mutex; PolyPad does not call them elsewhere.
