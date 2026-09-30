@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-script-status"
+description = "Enables the script_status command without any pre-configured scope."
+commands.allow = ["script_status"]
+
+[[permission]]
+identifier = "deny-script-status"
+description = "Denies the script_status command without any pre-configured scope."
+commands.deny = ["script_status"]

@@ -6,11 +6,18 @@
 
 use std::path::{Path, PathBuf};
 
+use polypad_core::language::{ExecutionMode, Language};
+use serde::Serialize;
+use specta::Type;
 use specta_typescript::Typescript;
 use tauri::Wry;
-use tauri_specta::{Builder, collect_commands};
+use tauri_specta::{Builder, collect_commands, collect_events};
 
-use crate::{commands, error::CommandError};
+use crate::{
+    commands::{app, preferences, scripts, session},
+    error::CommandError,
+    events::{FlushRequested, ScriptsChanged},
+};
 
 /// Location of the generated bindings, relative to this crate's manifest directory.
 const BINDINGS_RELATIVE_PATH: &str = "../ui/src/shared/ipc/bindings.ts";
@@ -19,8 +26,48 @@ const BINDINGS_RELATIVE_PATH: &str = "../ui/src/shared/ipc/bindings.ts";
 #[must_use]
 pub fn builder() -> Builder<Wry> {
     Builder::<Wry>::new()
-        .commands(collect_commands![commands::app_info])
+        .commands(collect_commands![
+            app::app_info,
+            session::workspace_snapshot,
+            session::journal_buffer,
+            session::discard_buffer,
+            session::set_session,
+            session::ready_to_close,
+            scripts::list_scripts,
+            scripts::open_script,
+            scripts::script_status,
+            scripts::save_script,
+            scripts::create_script,
+            scripts::create_folder,
+            scripts::rename_entry,
+            scripts::move_entry,
+            scripts::delete_entry,
+            scripts::choose_scripts_folder,
+            preferences::update_preferences,
+        ])
+        .events(collect_events![ScriptsChanged, FlushRequested])
         .typ::<CommandError>()
+        .constant("LANGUAGE_MODES", language_modes())
+}
+
+/// Modes each language offers, first one default; exported so the UI never keeps its own copy.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageModes {
+    /// The language.
+    pub language: Language,
+    /// Its modes, the default first.
+    pub modes: Vec<ExecutionMode>,
+}
+
+fn language_modes() -> Vec<LanguageModes> {
+    Language::ALL
+        .iter()
+        .map(|&language| LanguageModes {
+            language,
+            modes: language.modes().to_vec(),
+        })
+        .collect()
 }
 
 /// Absolute path of the committed bindings file.

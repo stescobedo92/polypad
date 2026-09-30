@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-discard-buffer"
+description = "Enables the discard_buffer command without any pre-configured scope."
+commands.allow = ["discard_buffer"]
+
+[[permission]]
+identifier = "deny-discard-buffer"
+description = "Denies the discard_buffer command without any pre-configured scope."
+commands.deny = ["discard_buffer"]

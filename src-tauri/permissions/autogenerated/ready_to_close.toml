@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ready-to-close"
+description = "Enables the ready_to_close command without any pre-configured scope."
+commands.allow = ["ready_to_close"]
+
+[[permission]]
+identifier = "deny-ready-to-close"
+description = "Denies the ready_to_close command without any pre-configured scope."
+commands.deny = ["ready_to_close"]

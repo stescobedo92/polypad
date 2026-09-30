@@ -23,9 +23,16 @@ polypad-secrets = { path = "crates/polypad-secrets" }
 
 # External crates. Tauri itself is declared directly in src-tauri/Cargo.toml because the
 # Tauri CLI manages its feature list there.
+atomic-write-file = "0.3.1"
+blake3 = "1.8.7"
+dunce = "1.0.5"
+notify = "8.2.0"
+notify-debouncer-full = "0.7.0"
+same-file = "1.0.6"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2.0.21"
+trash = "5.2.9"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tracing-appender = "0.2.5"
@@ -33,6 +40,7 @@ tracing-appender = "0.2.5"
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 
 # Test-only
+proptest = "1.11.0"
 tempfile = "3.27.0"
 
 [workspace.lints.rust]

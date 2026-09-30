@@ -3,16 +3,24 @@
 //! Commands are thin adapters that translate between IPC types and domain services; business
 //! logic lives in the library crates so it can be tested without a WebView.
 
+pub mod closing;
 pub mod commands;
 pub mod error;
+pub mod events;
 pub mod ipc;
+pub mod workspace;
 
 use std::{path::PathBuf, process::ExitCode};
 
 use polypad_core::telemetry::{self, TelemetryConfig, TelemetryGuard};
-use tauri::Manager;
+use tauri::{App, AppHandle, Manager, RunEvent, WindowEvent};
+use tauri_plugin_window_state::StateFlags;
 
-use crate::error::DisplayChain;
+use crate::{
+    closing::{CloseGuard, MAIN_WINDOW},
+    error::DisplayChain,
+    workspace::{Workspace, WorkspaceDirs},
+};
 
 /// Starts PolyPad and blocks until the last window closes.
 #[must_use]
@@ -29,7 +37,25 @@ pub fn run() -> ExitCode {
 fn try_run() -> Result<ExitCode, tauri::Error> {
     let ipc = ipc::builder();
     let app = tauri::Builder::default()
+        // First, as the plugin requires. A second PolyPad would share the recovery journal and
+        // could discard the other's unsaved work, so a second launch focuses this window instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            focus_main_window(app);
+        }))
+        // Used from Rust only; no capability grants these plugins to the WebView.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                // Not VISIBLE: the window starts hidden and is shown once restored (below).
+                .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
+                .build(),
+        )
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(ipc.invoke_handler())
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                closing::on_close_requested(window, api);
+            }
+        })
         .build(tauri::generate_context!())?;
     ipc.mount_events(&app);
 
@@ -41,14 +67,61 @@ fn try_run() -> Result<ExitCode, tauri::Error> {
         arch = std::env::consts::ARCH,
         "PolyPad started"
     );
+    // The event loop has not started yet, so no command can run before the state exists.
+    start_workspace(&app);
 
     // `run_return` (unlike `run`) hands control back instead of calling `process::exit`, so
     // dropping the telemetry guard below flushes the last buffered log records.
-    let exit_code = app.run_return(|_, _| {});
+    let exit_code = app.run_return(|app, event| {
+        // Config windows are only created once the event loop starts, so `Ready` is the first
+        // moment the main window exists (already restored by window-state).
+        if matches!(event, RunEvent::Ready) {
+            show_main_window(app);
+        }
+    });
     tracing::info!(exit_code, "PolyPad exited");
     drop(telemetry);
 
     Ok(u8::try_from(exit_code).map_or(ExitCode::FAILURE, ExitCode::from))
+}
+
+/// Opens the workspace and starts watching the scripts folder.
+fn start_workspace(app: &App) {
+    let paths = app.path();
+    let dirs = WorkspaceDirs {
+        config: paths.app_config_dir().ok(),
+        local_data: paths.app_local_data_dir().ok(),
+        documents: paths.document_dir().ok(),
+        home: paths.home_dir().ok(),
+    };
+    app.manage(CloseGuard::default());
+    app.manage(Workspace::load(&dirs));
+    // Starting a watcher walks the whole folder on Windows and macOS: keep it off the thread
+    // that has to draw the first frame.
+    let handle = app.handle().clone();
+    std::thread::spawn(move || workspace::watch_scripts(&handle));
+    workspace::reconcile_periodically(app.handle());
+}
+
+/// Brings the main window to the front when PolyPad is launched again.
+fn focus_main_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
+        return;
+    };
+    if let Err(error) = window.unminimize().and_then(|()| window.set_focus()) {
+        tracing::warn!(%error, "cannot focus the main window");
+    }
+}
+
+/// Shows the main window, which starts hidden so it never flashes at its default geometry.
+fn show_main_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
+        tracing::error!("the main window was not created");
+        return;
+    };
+    if let Err(error) = window.show() {
+        tracing::error!(%error, "cannot show the main window");
+    }
 }
 
 /// Starts file logging and crash reports in `log_dir`, falling back to stderr: a logging

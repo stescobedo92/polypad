@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 899352ee1391440f388f3f12ce1e82236dfbb5ad6ec5023c17ab2189111c59fe # shrinks to header = Header { language: CSharp, mode: Statements, connection: None, packages: [], imports: [], extra: {} }, code = "", newline = Lf

@@ -1,0 +1,105 @@
+# ADR-0007: Scripts workspace, saving and crash recovery
+
+- **Status:** Accepted
+- **Date:** 2026-09-30
+- **Amends:** ADR-0002 (error contract) and ADR-0003 (capabilities)
+
+## Context
+
+Phase 1 turns PolyPad into an editor of scripts that live in a folder the user owns and that
+other programs (git, editors, sync clients) change too. The acceptance criteria ask to create,
+rename, move, save and reopen scripts, reflect external changes, and lose no data when the app is
+killed. The WebView is an untrusted boundary (ADR-0003), and file systems differ across Windows,
+macOS and Linux.
+
+## Decision
+
+**Save model: explicit save plus a recovery journal** (chosen with the user over autosave to the
+file). Ctrl+S writes the `.ppad`; unsaved buffers are journaled continuously and restored on the
+next start without prompting.
+
+- `app_local_data_dir()/recovery/` holds `session.json` (open tabs) and one snapshot per dirty
+  buffer, written atomically. The UI sends snapshots with a 300 ms debounce and at most 1 s apart,
+  so killing the process loses at most the last second of typing. On a normal close, Rust holds
+  the first close request for up to 1 s while the UI flushes.
+- Loading never drops work: snapshots the session does not list come back as extra tabs,
+  unreadable files are moved aside, and files from a newer journal version are left alone.
+- Buffer ids become file names, so they are restricted to `[A-Za-z0-9-]`, at most 64 characters.
+- Journaled work records the scripts folder it belongs to (a hash of its canonical path, added by
+  Rust, never seen by the UI). If a different folder is open at the next start (the chosen one
+  was unavailable and PolyPad fell back to the default), unsaved buffers come back detached:
+  untitled, with their previous path only as a hint, so they can never be saved over an
+  unrelated file with the same relative path. Clean tabs of another folder are dropped.
+
+**Conflict-checked saves.** A save names the state the caller expects on disk: the content
+stamp (BLAKE3 of the bytes) it read, or "no file". Anything else is a conflict and the file is
+left untouched. This one rule covers saving, recreating a script deleted elsewhere and keeping
+local changes after a conflict (adopt the current stamp, then save). Writes go to a temporary
+file in the same folder, are flushed and renamed over the target, and are retried for up to
+620 ms on Windows while scanners or sync clients hold the file.
+
+**Paths never leave Rust in absolute form.** The UI addresses entries with `ScriptPath`, relative
+to the scripts root and validated with the strictest rules of the three platforms (no characters
+Windows forbids, no reserved device names, no trailing dot or space, no hidden entries, at most
+255 bytes per component). The store canonicalizes existing entries and refuses those whose real
+location leaves the root, which covers symbolic links. The root itself is chosen only through the
+native folder picker, opened from Rust. Case-only renames compare file identity, so they work on
+case-insensitive file systems without overwriting another file on Linux. Deletion moves entries to
+the operating system trash.
+
+**External changes are hints.** `notify` 8.2 with `notify-debouncer-full` reports batches
+(changed paths, renames paired within the root, a rescan flag). Consumers re-read what a batch
+mentions and everything on a rescan. A watcher that reports errors (inotify, FSEvents) is replaced
+after two seconds; only the latest watcher's failure may restart it. notify's Windows backend,
+however, never reports its errors or buffer overflows: it logs them and may stop watching. So
+Rust also asks the UI to re-read everything every 30 seconds, and the UI reconciles when the
+window regains focus; a lost change is noticed within 30 seconds at worst. Hidden entries
+(including the temporary files of atomic writes and `.git`) never produce events. Own writes need
+no special case: after a save, the tab's stamp already matches the disk. Starting a watcher walks
+the folder (file ids for rename pairing), so it runs off the main thread.
+
+**Nothing blocks start-up.** Preferences fall back to defaults (an invalid file is moved aside);
+the configured scripts folder falls back to `Documents/PolyPad` (then `~/PolyPad`), and without a
+usable folder the app still starts and asks for one; without a journal, editing works and the UI
+warns that crash recovery is off. Only the default folder is created: a configured folder that is
+missing (an unplugged drive, a moved folder) is reported to the UI instead of being recreated
+empty, and stays in the preferences so it is used again once it is back.
+
+### Amendment to ADR-0002 (error contract)
+
+`CommandError` still never carries absolute paths, secrets or user code, but it is no longer only
+`internal`: expected failures are typed (`conflict`, `notFound`, `alreadyExists`, `invalidName`,
+`unsupportedDocument`, `scriptsFolderUnavailable`, `recoveryUnavailable`…) and may carry data the
+UI sent (relative script paths), content stamps and fixed reason codes. Unexpected failures remain
+`internal` with a log reference. The language catalogue is exported to TypeScript as the
+`LANGUAGE_MODES` constant.
+
+### Amendment to ADR-0003 (capabilities)
+
+The main window gains one `allow-<command>` permission per workspace command, and
+`core:event:allow-listen` / `core:event:allow-unlisten` so the UI can subscribe to
+`ScriptsChanged` and `FlushRequested` (the typed event helpers call `plugin:event|listen`, which
+the ACL checks). It does not gain `allow-emit`: the WebView listens to the backend, it never
+broadcasts. The `dialog` and `window-state` plugins are registered but used from Rust only, so no
+plugin permission of theirs reaches the WebView; `tauri-plugin-fs` is not used, because Rust file
+access does not go through capabilities and the store enforces its own confinement.
+
+## Consequences
+
+- The core logic (`polypad-core`: `ppad`, `scripts`, `recovery`, `preferences`, `atomic_fs`) is
+  tested without a WebView, including escape attempts and real file watching.
+- A save can still lose an external change that lands between the stamp check and the rename (a
+  window of milliseconds); locking would block other editors, so it is accepted. Rename and move
+  check that the target is free and then rename, so a file created in the microseconds between
+  the two is replaced; the standard library offers no portable no-replace rename.
+- PolyPad runs as a single instance (`tauri-plugin-single-instance`, used from Rust only): two
+  instances would share the recovery journal and one could discard the other's unsaved work.
+- The close handshake covers closing the window. Quitting through the application menu on macOS
+  (Cmd+Q) may exit without `CloseRequested`; the journal's one-second bound still holds.
+- Renames are not always paired: FSEvents (macOS) pairs only some, and Windows reports a move
+  between folders as two separate paths. The tab then shows "deleted on disk" instead of following
+  the file. Linux may miss files created inside a brand-new folder before it is watched;
+  the folder itself is reported and re-read.
+- The `trash` crate warns that its Linux implementation calls non-thread-safe `getmntent`
+  functions behind a mutex; PolyPad does not call them elsewhere.
+- Licences ISC and CC0-1.0 (brought by `notify`) were added to the cargo-deny allow list.

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-choose-scripts-folder"
+description = "Enables the choose_scripts_folder command without any pre-configured scope."
+commands.allow = ["choose_scripts_folder"]
+
+[[permission]]
+identifier = "deny-choose-scripts-folder"
+description = "Denies the choose_scripts_folder command without any pre-configured scope."
+commands.deny = ["choose_scripts_folder"]

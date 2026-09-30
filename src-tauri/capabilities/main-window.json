@@ -1,7 +1,27 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-window",
-  "description": "Least-privilege capability for the main PolyPad window: only the app commands the UI calls. Every addition must be justified in the pull request.",
+  "description": "Least-privilege capability for the main PolyPad window: the app commands the UI calls, plus listening to backend events (never emitting them). Every addition must be justified in the pull request.",
   "windows": ["main"],
-  "permissions": ["allow-app-info"]
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-app-info",
+    "allow-workspace-snapshot",
+    "allow-journal-buffer",
+    "allow-discard-buffer",
+    "allow-set-session",
+    "allow-ready-to-close",
+    "allow-list-scripts",
+    "allow-open-script",
+    "allow-script-status",
+    "allow-save-script",
+    "allow-create-script",
+    "allow-create-folder",
+    "allow-rename-entry",
+    "allow-move-entry",
+    "allow-delete-entry",
+    "allow-choose-scripts-folder",
+    "allow-update-preferences"
+  ]
 }

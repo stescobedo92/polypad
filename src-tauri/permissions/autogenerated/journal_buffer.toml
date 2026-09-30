@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-journal-buffer"
+description = "Enables the journal_buffer command without any pre-configured scope."
+commands.allow = ["journal_buffer"]
+
+[[permission]]
+identifier = "deny-journal-buffer"
+description = "Denies the journal_buffer command without any pre-configured scope."
+commands.deny = ["journal_buffer"]

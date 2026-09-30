@@ -1,7 +1,4 @@
-//! Tauri commands exposed to the WebView.
-//!
-//! Every command must also be listed in `build.rs` (`AppManifest::commands`) and granted in a
-//! capability file, otherwise the WebView cannot call it.
+//! Build information of the running application.
 
 use serde::Serialize;
 use specta::Type;
