@@ -38,8 +38,8 @@ fn next_reference() -> String {
     format!("E-{:x}-{sequence}", std::process::id())
 }
 
-/// Formats an error followed by its chain of sources.
-struct DisplayChain<'a>(&'a (dyn std::error::Error + 'static));
+/// Formats an error followed by its chain of sources (`outer: cause: root cause`).
+pub(crate) struct DisplayChain<'a>(pub(crate) &'a (dyn std::error::Error + 'static));
 
 impl std::fmt::Display for DisplayChain<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -66,7 +66,11 @@ mod tests {
 
         let json = serde_json::to_value(&error).unwrap();
         assert_eq!(json["code"], "internal");
-        assert!(json["reference"].as_str().is_some_and(|r| r.starts_with("E-")));
+        assert!(
+            json["reference"]
+                .as_str()
+                .is_some_and(|r| r.starts_with("E-"))
+        );
 
         let rendered = format!("{json} {error}");
         assert!(!rendered.contains("secret.txt"), "{rendered}");

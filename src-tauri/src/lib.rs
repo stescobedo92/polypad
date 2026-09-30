@@ -7,19 +7,12 @@ pub mod commands;
 pub mod error;
 pub mod ipc;
 
-use std::process::ExitCode;
+use std::{path::Path, process::ExitCode};
 
-use polypad_core::telemetry::{self, TelemetryConfig, TelemetryError};
+use polypad_core::telemetry::{self, TelemetryConfig, TelemetryGuard};
 use tauri::Manager;
 
-/// Failures that prevent the application from starting.
-#[derive(Debug, thiserror::Error)]
-enum StartupError {
-    #[error("the Tauri runtime could not be initialized")]
-    Tauri(#[from] tauri::Error),
-    #[error("logging could not be initialized")]
-    Telemetry(#[from] TelemetryError),
-}
+use crate::error::DisplayChain;
 
 /// Starts PolyPad and blocks until the last window closes.
 #[must_use]
@@ -33,17 +26,17 @@ pub fn run() -> ExitCode {
     }
 }
 
-fn try_run() -> Result<ExitCode, StartupError> {
+fn try_run() -> Result<ExitCode, tauri::Error> {
     let ipc = ipc::builder();
     let app = tauri::Builder::default()
         .invoke_handler(ipc.invoke_handler())
         .build(tauri::generate_context!())?;
     ipc.mount_events(&app);
 
-    // Initialized here rather than in `Builder::setup`: a failing setup hook panics inside the
-    // event loop, while this path reports the error and exits cleanly.
+    // Set up here rather than in `Builder::setup`, whose failures panic inside the event loop.
     let log_dir = app.path().app_log_dir()?;
-    let telemetry = telemetry::init(&TelemetryConfig::new(log_dir))?;
+    let telemetry = start_telemetry(&log_dir);
+    telemetry::install_panic_hook(log_dir);
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
         os = std::env::consts::OS,
@@ -60,13 +53,29 @@ fn try_run() -> Result<ExitCode, StartupError> {
     Ok(u8::try_from(exit_code).map_or(ExitCode::FAILURE, ExitCode::from))
 }
 
-/// Last-resort report for failures that happen before logging exists.
-#[allow(clippy::print_stderr)] // no logger is available yet; stderr is the only channel left
-fn report_startup_failure(error: &StartupError) {
-    eprintln!("PolyPad failed to start: {error}");
-    let mut source = std::error::Error::source(error);
-    while let Some(cause) = source {
-        eprintln!("  caused by: {cause}");
-        source = cause.source();
+/// Starts file logging, falling back to stderr: a logging problem must never block start-up.
+fn start_telemetry(log_dir: &Path) -> Option<TelemetryGuard> {
+    match telemetry::init(&TelemetryConfig::new(log_dir)) {
+        Ok(guard) => Some(guard),
+        Err(error) => {
+            // The fallback can only fail if a subscriber is already installed, in which case
+            // that subscriber receives the error record below.
+            let _ = telemetry::init_stderr_only();
+            tracing::error!(
+                error = %DisplayChain(&error),
+                log_dir = %log_dir.display(),
+                "file logging is unavailable; logging to stderr only"
+            );
+            None
+        }
     }
+}
+
+/// Reports a failure to create the Tauri runtime, which happens before logging exists.
+///
+/// Best effort: release builds on Windows have no console. Panics after this point are
+/// recorded by the panic hook instead (see docs/adr/0004).
+#[allow(clippy::print_stderr)] // no logger is available yet; stderr is the only channel left
+fn report_startup_failure(error: &tauri::Error) {
+    eprintln!("PolyPad failed to start: {}", DisplayChain(error));
 }

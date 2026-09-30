@@ -33,6 +33,14 @@ identically on Windows, macOS and Linux, locally and in CI.
 - **Telemetry** is initialized after `tauri::Builder::build` and before `App::run_return`, not in
   the `setup` hook: a failing setup hook panics inside the event loop, and `App::run` exits the
   process without running destructors, which would lose buffered log records.
+  - A failure to open the log file is not fatal: logging falls back to stderr.
+  - A panic hook appends a crash report (message and backtrace) to `polypad-crash.log`
+    **synchronously** before anything else. Panics raised inside the windowing system's callbacks
+    (for example, window creation failing because WebView2 is missing) abort the process, which
+    would drop records still queued in the non-blocking writer.
+  - Known gap: if the Tauri runtime itself cannot be built, the error only goes to stderr, which
+    Windows release builds do not have. A native error dialog for that case is deferred to the
+    installer work in Phase 8 (installers also guarantee the WebView2 runtime).
 
 ## Consequences
 

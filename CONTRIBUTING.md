@@ -21,8 +21,14 @@
 | Dependency policy | `cargo deny check` · `cargo audit` |
 
 Use the pinned Tauri CLI through `pnpm tauri`, not a globally installed `cargo tauri`.
-Set `POLYPAD_LOG` (for example `POLYPAD_LOG=polypad=debug`) to change the log filter. Logs are
-written to the OS log directory of the app (`io.github.stescobedo92.polypad/logs`).
+Set `POLYPAD_LOG` (for example `POLYPAD_LOG=polypad=debug`) to change the log filter. Logs, and
+`polypad-crash.log` after a panic, are written to the app's log directory:
+
+| OS | Log directory |
+|---|---|
+| Windows | `%LOCALAPPDATA%\io.github.stescobedo92.polypad\logs` |
+| macOS | `~/Library/Logs/io.github.stescobedo92.polypad` |
+| Linux | `~/.local/share/io.github.stescobedo92.polypad/logs` |
 
 ## Adding a Tauri command
 
