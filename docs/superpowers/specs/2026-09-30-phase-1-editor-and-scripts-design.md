@@ -220,14 +220,19 @@ top.Dump("Top orders");
     "workspace": { "explorer": 18, "main": 82 },
     "document": { "editor": 60, "results": 40 }
   },
-  "collapsed": { "explorer": false, "results": false },
   "keybindings": { "workbench.togglePalette": "Ctrl+Shift+P" },
   "lastLanguage": "csharp"
 }
 ```
 
 An unreadable or invalid file is kept aside as `preferences.invalid-<timestamp>.json`, defaults are
-used and a warning is logged; start-up never fails because of preferences.
+used and a warning is logged; start-up never fails because of preferences. A value this build
+cannot decode (such as a language added later) is dropped on its own, and a file written by a newer
+version keeps its version number when saved.
+
+Only `UiPreferences` (`layout`, `keybindings`, `lastLanguage`) crosses the IPC boundary;
+`scriptsRoot` is an absolute path and stays in Rust (§5.2). Collapsed panels need no field of their
+own: the layout stores them at their collapsed size.
 
 ## 6. User interface
 
