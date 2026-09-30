@@ -321,13 +321,16 @@ mod tests {
 
         fs::rename(temp.path().join("a.ppad"), temp.path().join("b.ppad")).unwrap();
 
-        let changes = collect_until(&events, |c| {
-            c.renamed.contains(&Renamed {
-                from: path("a.ppad"),
-                to: path("b.ppad"),
-            }) || (c.paths.contains(&path("a.ppad")) && c.paths.contains(&path("b.ppad")))
+        // Any of the three answers lets a consumer find out: a paired rename (Windows, Linux),
+        // both paths, or a rescan, which FSEvents on macOS sends when it coalesces the events.
+        collect_until(&events, |c| {
+            c.rescan
+                || c.renamed.contains(&Renamed {
+                    from: path("a.ppad"),
+                    to: path("b.ppad"),
+                })
+                || (c.paths.contains(&path("a.ppad")) && c.paths.contains(&path("b.ppad")))
         });
-        assert!(!changes.rescan);
     }
 
     #[test]
