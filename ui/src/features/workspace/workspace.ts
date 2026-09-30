@@ -23,6 +23,7 @@ import {
   type Session,
 } from "../../shared/ipc";
 import { findLanguage } from "../../shared/languages";
+import { JournalWriter } from "./journal";
 import type { TextBuffers } from "./textBuffers";
 
 /** The commands the workspace needs; `shared/ipc` provides them in the app. */
@@ -73,6 +74,8 @@ export interface Tab {
 export interface WorkspaceState {
   readonly tabs: readonly Tab[];
   readonly activeId: BufferId | null;
+  /** A journal write failed: a crash could lose unsaved work (shown to the user once). */
+  readonly journalFailed: boolean;
 }
 
 export interface WorkspaceDeps {
@@ -80,6 +83,8 @@ export interface WorkspaceDeps {
   readonly buffers: TextBuffers;
   /** Creates buffer ids; random UUIDs by default. */
   readonly newId?: () => BufferId;
+  /** Milliseconds since the Unix epoch, for journal snapshots. */
+  readonly now?: () => number;
 }
 
 export interface Workspace {
@@ -107,6 +112,8 @@ export interface Workspace {
   /** Switches the language, keeping the mode when the new language offers it. */
   setLanguage(id: BufferId, language: LanguageId): void;
   setMode(id: BufferId, mode: ExecutionMode): void;
+  /** Writes pending journal snapshots now (the window is closing). */
+  flushJournal(): Promise<void>;
   /** Resolves once the background writes started so far have finished. */
   settled(): Promise<void>;
 }
@@ -138,7 +145,22 @@ function sameHeader(a: Header, b: Header): boolean {
 export function createWorkspace(deps: WorkspaceDeps): Workspace {
   const { ipc, buffers } = deps;
   const newId = deps.newId ?? (() => crypto.randomUUID());
-  const store = createStore<WorkspaceState>(() => ({ tabs: [], activeId: null }));
+  const now = deps.now ?? (() => Date.now());
+  const store = createStore<WorkspaceState>(() => ({
+    tabs: [],
+    activeId: null,
+    journalFailed: false,
+  }));
+  const journal = new JournalWriter({
+    write: (id, snapshot) => ipc.journalBuffer(id, snapshot),
+    discard: (id) => ipc.discardBuffer(id),
+    onFailure: (error) => {
+      console.warn("the recovery journal failed", error);
+      store.setState({ journalFailed: true });
+    },
+  });
+  /** Buffers that may have a journal entry, so clean buffers cause no discard calls. */
+  const journaled = new Set<BufferId>();
   let untitledCount = 0;
   let pending: Promise<unknown> = Promise.resolve();
 
@@ -160,6 +182,24 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
       modified:
         tab.forcedModified || buffers.isModified(id) || !sameHeader(tab.header, tab.savedHeader),
     }));
+    if (find(id)?.modified === true) {
+      journaled.add(id);
+      journal.schedule(id, () => snapshotOf(id));
+    } else {
+      forgetJournal(id);
+    }
+  }
+
+  /** What the journal keeps for a modified tab; `null` once there is nothing unsaved. */
+  function snapshotOf(id: BufferId): BufferSnapshot | null {
+    const tab = find(id);
+    if (tab?.modified !== true) return null;
+    return {
+      path: tab.path,
+      baseStamp: tab.baseStamp,
+      document: documentOf(tab),
+      updatedAt: now(),
+    };
   }
 
   // Sessions are written one after another, each with the latest state, so a slow write can
@@ -181,11 +221,9 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
   }
 
   function forgetJournal(id: BufferId): void {
-    track(
-      ipc.discardBuffer(id).catch((error: unknown) => {
-        console.warn("cannot forget unsaved changes", error);
-      }),
-    );
+    if (journaled.delete(id)) {
+      journal.discard(id);
+    }
   }
 
   /** The tab's document as it would be written. */
@@ -205,7 +243,6 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
       diskStamp: null,
     }));
     refreshModified(id);
-    forgetJournal(id);
   }
 
   function changeHeader(id: BufferId, change: (header: Header) => Header): void {
@@ -378,7 +415,6 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
         diskStamp: null,
       }));
       refreshModified(id);
-      forgetJournal(id);
     },
 
     setLanguage(id, language) {
@@ -395,12 +431,17 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
       changeHeader(id, (header) => ({ ...header, mode }));
     },
 
+    flushJournal() {
+      return journal.flush();
+    },
+
     async settled() {
       let current: Promise<unknown>;
       do {
         current = pending;
         await current;
       } while (current !== pending);
+      await journal.whenIdle();
     },
   };
 }

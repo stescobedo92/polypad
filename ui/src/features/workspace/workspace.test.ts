@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CommandFailure } from "../../shared/ipc";
 import { FakeBackend, headerFor } from "../../test/fakeBackend";
@@ -16,6 +16,7 @@ function setup() {
       next += 1;
       return `b${String(next)}`;
     },
+    now: () => 42,
   });
   const state = () => workspace.store.getState();
   const tab = (id: string) => state().tabs.find((candidate) => candidate.id === id);
@@ -311,5 +312,81 @@ describe("header changes", () => {
     workspace.setMode("b1", "statements");
 
     expect(tab("b1")?.modified).toBe(false);
+  });
+});
+
+describe("the recovery journal", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("records unsaved work once editing pauses", async () => {
+    vi.useFakeTimers();
+    const { backend, buffers, workspace } = setup();
+    const stamp = backend.write("a.ppad", "saved");
+    await workspace.openScript("a.ppad");
+
+    buffers.edit("b1", "unsaved");
+    await vi.advanceTimersByTimeAsync(300);
+    await workspace.settled();
+
+    expect(backend.journal.get("b1")).toEqual({
+      path: "a.ppad",
+      baseStamp: stamp,
+      document: { header: headerFor("csharp"), code: "unsaved", newline: "lf" },
+      updatedAt: 42,
+    });
+  });
+
+  it("a save made before the pause is not undone by the pending write", async () => {
+    vi.useFakeTimers();
+    const { backend, buffers, workspace } = setup();
+    backend.write("a.ppad", "saved");
+    await workspace.openScript("a.ppad");
+
+    buffers.edit("b1", "quick save");
+    await workspace.save("b1");
+    await vi.advanceTimersByTimeAsync(2000);
+    await workspace.settled();
+
+    expect(backend.journal.has("b1")).toBe(false);
+  });
+
+  it("forgets the work when edits are undone back to the saved text", async () => {
+    vi.useFakeTimers();
+    const { backend, buffers, workspace } = setup();
+    backend.write("a.ppad", "saved");
+    await workspace.openScript("a.ppad");
+    buffers.edit("b1", "changed");
+    await vi.advanceTimersByTimeAsync(300);
+
+    buffers.edit("b1", "saved");
+    await vi.advanceTimersByTimeAsync(300);
+    await workspace.settled();
+
+    expect(backend.journal.has("b1")).toBe(false);
+  });
+
+  it("records header changes too", async () => {
+    vi.useFakeTimers();
+    const { backend, workspace } = setup();
+    backend.write("a.ppad", "x");
+    await workspace.openScript("a.ppad");
+
+    workspace.setMode("b1", "program");
+    await vi.advanceTimersByTimeAsync(300);
+    await workspace.settled();
+
+    expect(backend.journal.get("b1")?.document.header.mode).toBe("program");
+  });
+
+  it("writes pending work immediately when flushed", async () => {
+    const { backend, buffers, workspace } = setup();
+    workspace.newScript("python");
+    buffers.edit("b1", "draft");
+
+    await workspace.flushJournal();
+
+    expect(backend.journal.get("b1")?.document.code).toBe("draft");
   });
 });
