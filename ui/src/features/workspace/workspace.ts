@@ -1,0 +1,266 @@
+/**
+ * Open scripts and what happens to them: opening, editing, closing, the session.
+ *
+ * The text of each tab lives in {@link TextBuffers}; this module keeps everything else in a
+ * Zustand store and talks to Rust through {@link WorkspaceIpc}, so it is tested against an
+ * in-memory backend without a WebView or an editor.
+ */
+import { createStore, type StoreApi } from "zustand/vanilla";
+
+import type {
+  BufferId,
+  BufferSnapshot,
+  ContentStamp,
+  CreatedScript,
+  Document,
+  Header,
+  LanguageId,
+  LoadedScript,
+  Newline,
+  ScriptPath,
+  Session,
+} from "../../shared/ipc";
+import { findLanguage } from "../../shared/languages";
+import type { TextBuffers } from "./textBuffers";
+
+/** The commands the workspace needs; `shared/ipc` provides them in the app. */
+export interface WorkspaceIpc {
+  openScript(path: ScriptPath): Promise<LoadedScript>;
+  scriptStatus(path: ScriptPath): Promise<ContentStamp | null>;
+  saveScript(
+    path: ScriptPath,
+    document: Document,
+    expected: ContentStamp | null,
+  ): Promise<ContentStamp>;
+  createScript(parent: ScriptPath | null, name: string, document: Document): Promise<CreatedScript>;
+  journalBuffer(id: BufferId, snapshot: BufferSnapshot): Promise<void>;
+  discardBuffer(id: BufferId): Promise<void>;
+  setSession(session: Session): Promise<void>;
+}
+
+/** How the file on disk relates to the tab. */
+export type DiskState =
+  /** The file is what the tab was loaded from or last saved as. */
+  | "same"
+  /** Another program changed the file while the tab has unsaved changes. */
+  | "changed"
+  /** The file is gone; saving recreates it. */
+  | "missing";
+
+export interface Tab {
+  readonly id: BufferId;
+  /** The script; `null` for an untitled one. */
+  readonly path: ScriptPath | null;
+  /** Numbers untitled tabs ("Untitled 2"). */
+  readonly untitledNumber: number | null;
+  readonly header: Header;
+  readonly newline: Newline;
+  /** Stamp of the file the tab is based on; `null` when there is no file. */
+  readonly baseStamp: ContentStamp | null;
+  /** The tab differs from its file (text, header, or an upgrade applied while loading). */
+  readonly modified: boolean;
+  readonly disk: DiskState;
+  /** Header as last saved or loaded; a different current header makes the tab modified. */
+  readonly savedHeader: Header;
+  /** Modified regardless of the text (loaded with an upgrade, or recovered from the journal). */
+  readonly forcedModified: boolean;
+}
+
+export interface WorkspaceState {
+  readonly tabs: readonly Tab[];
+  readonly activeId: BufferId | null;
+}
+
+export interface WorkspaceDeps {
+  readonly ipc: WorkspaceIpc;
+  readonly buffers: TextBuffers;
+  /** Creates buffer ids; random UUIDs by default. */
+  readonly newId?: () => BufferId;
+}
+
+export interface Workspace {
+  readonly store: StoreApi<WorkspaceState>;
+  /** Opens `path`, or activates its tab when it is already open. */
+  openScript(path: ScriptPath): Promise<void>;
+  /** Opens an empty untitled script in `language`. */
+  newScript(language: LanguageId): void;
+  activate(id: BufferId): void;
+  /** Closes a tab without unsaved changes; reports `"unsaved"` instead of closing a modified one. */
+  requestClose(id: BufferId): Promise<"closed" | "unsaved">;
+  /** Closes a tab and forgets its unsaved changes. */
+  discardAndClose(id: BufferId): Promise<void>;
+  /** Resolves once the background writes started so far have finished. */
+  settled(): Promise<void>;
+}
+
+/** Header of a new script in `language`, as Rust writes it. */
+export function newHeader(language: LanguageId): Header {
+  return {
+    language,
+    mode: findLanguage(language).modes[0],
+    connection: null,
+    packages: [],
+    imports: [],
+    extra: "{}",
+  };
+}
+
+function sameHeader(a: Header, b: Header): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+export function createWorkspace(deps: WorkspaceDeps): Workspace {
+  const { ipc, buffers } = deps;
+  const newId = deps.newId ?? (() => crypto.randomUUID());
+  const store = createStore<WorkspaceState>(() => ({ tabs: [], activeId: null }));
+  let untitledCount = 0;
+  let pending: Promise<unknown> = Promise.resolve();
+
+  const find = (id: BufferId) => store.getState().tabs.find((tab) => tab.id === id);
+
+  function track(work: Promise<unknown>): void {
+    pending = Promise.allSettled([pending, work]);
+  }
+
+  function updateTab(id: BufferId, change: (tab: Tab) => Tab): void {
+    store.setState((state) => ({
+      tabs: state.tabs.map((tab) => (tab.id === id ? change(tab) : tab)),
+    }));
+  }
+
+  function refreshModified(id: BufferId): void {
+    updateTab(id, (tab) => ({
+      ...tab,
+      modified:
+        tab.forcedModified || buffers.isModified(id) || !sameHeader(tab.header, tab.savedHeader),
+    }));
+  }
+
+  // Sessions are written one after another, each with the latest state, so a slow write can
+  // never land after a newer one.
+  let sessionWrites: Promise<unknown> = Promise.resolve();
+  function persistSession(): void {
+    sessionWrites = sessionWrites.then(() => {
+      const { tabs, activeId } = store.getState();
+      return ipc
+        .setSession({
+          tabs: tabs.map((tab) => ({ bufferId: tab.id, path: tab.path })),
+          active: activeId,
+        })
+        .catch((error: unknown) => {
+          console.warn("cannot record the session", error);
+        });
+    });
+    track(sessionWrites);
+  }
+
+  function addTab(tab: Tab): void {
+    store.setState((state) => ({ tabs: [...state.tabs, tab], activeId: tab.id }));
+    persistSession();
+  }
+
+  function activate(id: BufferId): void {
+    if (find(id) === undefined) return;
+    store.setState({ activeId: id });
+    persistSession();
+  }
+
+  function close(id: BufferId): void {
+    const { tabs, activeId } = store.getState();
+    const index = tabs.findIndex((tab) => tab.id === id);
+    if (index < 0) return;
+    const remaining = tabs.filter((tab) => tab.id !== id);
+    const neighbour = remaining[Math.min(index, remaining.length - 1)];
+    store.setState({
+      tabs: remaining,
+      activeId: activeId === id ? (neighbour?.id ?? null) : activeId,
+    });
+    buffers.dispose(id);
+    persistSession();
+    track(
+      ipc.discardBuffer(id).catch((error: unknown) => {
+        console.warn("cannot forget unsaved changes", error);
+      }),
+    );
+  }
+
+  buffers.onDidChange(refreshModified);
+
+  return {
+    store,
+
+    async openScript(path) {
+      const open = () => store.getState().tabs.find((tab) => tab.path === path);
+      const existing = open();
+      if (existing !== undefined) {
+        activate(existing.id);
+        return;
+      }
+      const loaded = await ipc.openScript(path);
+      // Opened twice concurrently: keep the first tab.
+      const raced = open();
+      if (raced !== undefined) {
+        activate(raced.id);
+        return;
+      }
+      const id = newId();
+      const { header, code, newline } = loaded.document;
+      buffers.create(id, header.language, code);
+      addTab({
+        id,
+        path,
+        untitledNumber: null,
+        header,
+        newline,
+        baseStamp: loaded.stamp,
+        modified: loaded.normalized,
+        disk: "same",
+        savedHeader: header,
+        forcedModified: loaded.normalized,
+      });
+    },
+
+    newScript(language) {
+      const id = newId();
+      untitledCount += 1;
+      const header = newHeader(language);
+      buffers.create(id, language, "");
+      addTab({
+        id,
+        path: null,
+        untitledNumber: untitledCount,
+        header,
+        newline: "lf",
+        baseStamp: null,
+        modified: false,
+        disk: "same",
+        savedHeader: header,
+        forcedModified: false,
+      });
+    },
+
+    activate,
+
+    requestClose(id) {
+      const tab = find(id);
+      if (tab?.modified === true) {
+        return Promise.resolve("unsaved");
+      }
+      close(id);
+      return Promise.resolve("closed");
+    },
+
+    discardAndClose(id) {
+      close(id);
+      return Promise.resolve();
+    },
+
+    async settled() {
+      let current: Promise<unknown>;
+      do {
+        current = pending;
+        await current;
+      } while (current !== pending);
+    },
+  };
+}
