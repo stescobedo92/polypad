@@ -2,10 +2,9 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
-// Set by the Tauri CLI when the dev server must be reachable from another device.
-const host = process.env.TAURI_DEV_HOST;
-// Set by the Tauri CLI for `tauri dev` and `tauri build --debug`.
-const isDebugBuild = Boolean(process.env.TAURI_ENV_DEBUG);
+// The Tauri CLI sets the string "true" for `tauri dev` and `tauri build --debug`, and "false"
+// for release builds, so a truthiness check would ship unminified bundles with source maps.
+const isDebugBuild = process.env.TAURI_ENV_DEBUG === "true";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -15,8 +14,8 @@ export default defineConfig({
     // Must match build.devUrl in src-tauri/tauri.conf.json.
     port: 5173,
     strictPort: true,
-    host: host ?? false,
-    ...(host ? { hmr: { protocol: "ws", host, port: 5174 } } : {}),
+    // Desktop only: HMR stays on this origin, the one devCsp allows. The template's
+    // TAURI_DEV_HOST branch serves physical mobile devices, which PolyPad does not target.
     watch: { ignored: ["**/src-tauri/**"] },
   },
   // Plain prefixes: Vite matches with startsWith, so a trailing "*" would be taken literally.
