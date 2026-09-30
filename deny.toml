@@ -1,0 +1,62 @@
+# cargo-deny policy: `cargo deny check` (runs in CI).
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Desktop targets PolyPad ships on.
+targets = [
+  "x86_64-pc-windows-msvc",
+  "aarch64-pc-windows-msvc",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+]
+
+[advisories]
+# Unmaintained crates fail the check only when the workspace depends on them directly;
+# transitive ones (mostly Tauri's GTK stack on Linux) are reported by `cargo audit` instead.
+unmaintained = "workspace"
+unsound = "all"
+yanked = "deny"
+ignore = [
+  # Every entry needs a reason and an exit condition; review them on each Tauri upgrade.
+  { id = "RUSTSEC-2024-0429", reason = "glib 0.18 unsoundness in VariantStrIter. Pulled in only by Tauri's GTK3 stack on Linux (tauri -> gtk 0.18); PolyPad never calls that API. Remove when Tauri leaves gtk-rs 0.18." },
+]
+
+[licenses]
+confidence-threshold = 0.93
+# Only licenses actually present in the graph are listed, so a dependency that brings a new
+# license fails CI until someone reviews it and adds it here with the pull request.
+# MPL-2.0 is file-level copyleft (parts of Tauri's HTML tooling): compatible with distributing
+# PolyPad under MIT as long as those files are not modified.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "Zlib",
+  "Unicode-3.0",
+  "MPL-2.0",
+]
+exceptions = []
+# Workspace crates are `publish = false` and MIT-licensed.
+private = { ignore = true }
+
+[bans]
+# Tauri's dependency tree legitimately carries several versions of foundational crates
+# (windows-sys, bitflags, ...). Duplicates are reported, not fatal; revisit when upgrading.
+multiple-versions = "warn"
+wildcards = "deny"
+# Workspace path dependencies (publish = false) are not wildcards in any meaningful sense.
+allow-wildcard-paths = true
+highlight = "all"
+deny = [
+  # TLS must come from rustls (see the spec's stack), never from the system OpenSSL.
+  { crate = "openssl", use-instead = "rustls" },
+  { crate = "openssl-sys", use-instead = "rustls" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

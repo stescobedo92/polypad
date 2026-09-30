@@ -1,0 +1,36 @@
+[package]
+name = "polypad"
+description = "PolyPad desktop application (Tauri 2 shell)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+default-run = "polypad"
+
+[lib]
+name = "polypad_app"
+
+[build-dependencies]
+tauri-build = { version = "2.7.0", features = [] }
+
+[dependencies]
+polypad-core.workspace = true
+polypad-protocol.workspace = true
+serde.workspace = true
+specta.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tauri = { version = "2.12.0", features = [] }
+# Release candidate pinned exactly, together with specta (see docs/adr/0002).
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
+specta-typescript = "=0.0.12"
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

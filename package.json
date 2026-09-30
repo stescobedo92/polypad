@@ -1,0 +1,20 @@
+{
+  "name": "polypad",
+  "private": true,
+  "description": "PolyPad monorepo root: Tauri CLI and workspace-wide scripts.",
+  "license": "MIT",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "bindings": "cargo test -p polypad --lib -- --ignored --exact ipc::tests::export",
+    "ui:check": "pnpm --dir ui typecheck && pnpm --dir ui lint && pnpm --dir ui format:check && pnpm --dir ui test"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.0"
+  }
+}
