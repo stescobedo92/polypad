@@ -26,6 +26,7 @@ tracing.workspace = true
 tauri = { version = "2.12.0", features = [] }
 # Used from Rust only: the WebView gets no plugin permission (see docs/adr/0003).
 tauri-plugin-dialog = "2.8.0"
+tauri-plugin-single-instance = "2.5.1"
 tauri-plugin-window-state = "2.5.0"
 # Release candidate pinned exactly, together with specta (see docs/adr/0002).
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }

@@ -37,7 +37,12 @@ pub fn run() -> ExitCode {
 fn try_run() -> Result<ExitCode, tauri::Error> {
     let ipc = ipc::builder();
     let app = tauri::Builder::default()
-        // Both plugins are used from Rust only; no capability grants them to the WebView.
+        // First, as the plugin requires. A second PolyPad would share the recovery journal and
+        // could discard the other's unsaved work, so a second launch focuses this window instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            focus_main_window(app);
+        }))
+        // Used from Rust only; no capability grants these plugins to the WebView.
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 // Not VISIBLE: the window starts hidden and is shown once restored (below).
@@ -96,6 +101,16 @@ fn start_workspace(app: &App) {
     let handle = app.handle().clone();
     std::thread::spawn(move || workspace::watch_scripts(&handle));
     workspace::reconcile_periodically(app.handle());
+}
+
+/// Brings the main window to the front when PolyPad is launched again.
+fn focus_main_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
+        return;
+    };
+    if let Err(error) = window.unminimize().and_then(|()| window.set_focus()) {
+        tracing::warn!(%error, "cannot focus the main window");
+    }
 }
 
 /// Shows the main window, which starts hidden so it never flashes at its default geometry.

@@ -378,3 +378,14 @@ path resolver, typed events in tauri-specta), `tauri-plugin-window-state` 2.5,
    quick open and shortcuts; phase acceptance checklist and self-review.
 
 Each PR ends green on CI (three platforms) with its own self-review; Phase 1 closes after PR 1c.
+
+### Requirements PR 1b inherits from the PR 1a review
+
+- Buffer ids come from `crypto.randomUUID()`.
+- Journal calls for one buffer are chained (`journal_buffer` then `discard_buffer` never overtake
+  each other), because a write can wait up to 620 ms for a Windows lock.
+- Focus reconciliation uses the DOM `focus` / `visibilitychange` events (no extra permission).
+- Recovered tabs with `previousPath` are shown as untitled copies of that script and can only be
+  saved with Save As; `unavailableFolder` is explained in a banner.
+- `DocumentTooLarge` and `TrashUnavailable` (for example on network drives) get their own
+  messages.

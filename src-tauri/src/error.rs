@@ -170,11 +170,10 @@ impl From<ScriptError> for CommandError {
                 Self::ScriptsFolderUnavailable
             }
             ScriptError::Document { path, source } => {
-                tracing::info!(%path, error = %source, "a script cannot be opened");
-                Self::UnsupportedDocument {
-                    path,
-                    problem: DocumentProblem::from(&source),
-                }
+                let problem = DocumentProblem::from(&source);
+                // The problem kind only: parser messages can quote header values.
+                tracing::info!(%path, ?problem, "a script cannot be opened");
+                Self::UnsupportedDocument { path, problem }
             }
             other => Self::internal(&other),
         }
