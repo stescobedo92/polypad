@@ -93,7 +93,8 @@ Events: `ScriptsChanged { paths, rescan }` and `FlushRequested`.
 UI sent (relative script paths) or fixed reason codes; never absolute paths or file contents.
 
 Plugins: `tauri-plugin-window-state` and `tauri-plugin-dialog`, both used **only from Rust**. The
-main-window capability gains only the `allow-<command>` permissions of the commands above.
+main-window capability gains the `allow-<command>` permissions of the commands above plus
+`core:event:allow-listen` / `core:event:allow-unlisten`, which the typed event listeners need.
 
 ### 4.3 UI
 
@@ -301,7 +302,8 @@ own: the layout stores them at their collapsed size.
   `'unsafe-inline'`), `dangerousDisableAssetCspModification: ["style-src"]` is set. `worker-src`
   drops `blob:` if the bundled worker proves it unnecessary.
 - **Paths:** confinement rules in §5.2; the WebView never handles absolute paths.
-- **Capabilities:** only new `allow-<command>` entries; no plugin permission reaches the WebView.
+- **Capabilities:** new `allow-<command>` entries and event listening (not emitting); no dialog or
+  window-state permission reaches the WebView.
 - **Logging:** paths are logged relative to the root; script contents are never logged.
 - **ADRs:** ADR-0006 (`.ppad` format) and ADR-0007 (scripts workspace, saving and recovery,
   amending ADR-0002 and ADR-0003) in PR 1a; ADR-0008 (editor choice, the CSP change and the

@@ -66,10 +66,13 @@ UI sent (relative script paths), content stamps and fixed reason codes. Unexpect
 
 ### Amendment to ADR-0003 (capabilities)
 
-The main window gains one `allow-<command>` permission per workspace command. The `dialog` and
-`window-state` plugins are registered but used from Rust only, so no plugin permission reaches the
-WebView; `tauri-plugin-fs` is not used, because Rust file access does not go through
-capabilities and the store enforces its own confinement.
+The main window gains one `allow-<command>` permission per workspace command, and
+`core:event:allow-listen` / `core:event:allow-unlisten` so the UI can subscribe to
+`ScriptsChanged` and `FlushRequested` (the typed event helpers call `plugin:event|listen`, which
+the ACL checks). It does not gain `allow-emit`: the WebView listens to the backend, it never
+broadcasts. The `dialog` and `window-state` plugins are registered but used from Rust only, so no
+plugin permission of theirs reaches the WebView; `tauri-plugin-fs` is not used, because Rust file
+access does not go through capabilities and the store enforces its own confinement.
 
 ## Consequences
 
