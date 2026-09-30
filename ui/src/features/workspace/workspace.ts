@@ -19,6 +19,7 @@ import {
   type LanguageId,
   type LoadedScript,
   type Newline,
+  type ScriptChanges,
   type ScriptPath,
   type Session,
 } from "../../shared/ipc";
@@ -112,6 +113,12 @@ export interface Workspace {
   /** Switches the language, keeping the mode when the new language offers it. */
   setLanguage(id: BufferId, language: LanguageId): void;
   setMode(id: BufferId, mode: ExecutionMode): void;
+  /**
+   * Applies changes other programs made: tabs follow renamed files, tabs without unsaved changes
+   * reload, tabs with unsaved changes are put in conflict, and deleted files are marked missing.
+   * A rescan checks every open script.
+   */
+  reconcile(changes: ScriptChanges): Promise<void>;
   /** Writes pending journal snapshots now (the window is closing). */
   flushJournal(): Promise<void>;
   /** Resolves once the background writes started so far have finished. */
@@ -256,6 +263,53 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
     refreshModified(id);
   }
 
+  async function reload(id: BufferId): Promise<void> {
+    const tab = find(id);
+    if (tab?.path == null) return;
+    const loaded = await ipc.openScript(tab.path);
+    const { header, code, newline } = loaded.document;
+    buffers.replace(id, code);
+    buffers.setLanguage(id, header.language);
+    updateTab(id, (latest) => ({
+      ...latest,
+      header,
+      newline,
+      baseStamp: loaded.stamp,
+      savedHeader: header,
+      forcedModified: loaded.normalized,
+      disk: "same",
+      diskStamp: null,
+    }));
+    refreshModified(id);
+  }
+
+  /** Compares a tab with its file and reacts as {@link Workspace.reconcile} describes. */
+  async function checkDisk(id: BufferId): Promise<void> {
+    const path = find(id)?.path;
+    if (path == null) return;
+    let status: ContentStamp | null;
+    try {
+      status = await ipc.scriptStatus(path);
+    } catch (error) {
+      console.warn("cannot check a script on disk", error);
+      return;
+    }
+    // The tab may have been saved, renamed or closed while the status was on its way.
+    const tab = find(id);
+    if (tab?.path !== path) return;
+    if (status === tab.baseStamp) {
+      if (tab.disk !== "same") {
+        updateTab(id, (latest) => ({ ...latest, disk: "same", diskStamp: null }));
+      }
+    } else if (status === null) {
+      updateTab(id, (latest) => ({ ...latest, disk: "missing", diskStamp: null }));
+    } else if (tab.modified) {
+      updateTab(id, (latest) => ({ ...latest, disk: "changed", diskStamp: status }));
+    } else {
+      await reload(id);
+    }
+  }
+
   function addTab(tab: Tab): void {
     store.setState((state) => ({ tabs: [...state.tabs, tab], activeId: tab.id }));
     persistSession();
@@ -397,24 +451,31 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
       );
     },
 
-    async reloadFromDisk(id) {
-      const tab = find(id);
-      if (tab?.path == null) return;
-      const loaded = await ipc.openScript(tab.path);
-      const { header, code, newline } = loaded.document;
-      buffers.replace(id, code);
-      buffers.setLanguage(id, header.language);
-      updateTab(id, (latest) => ({
-        ...latest,
-        header,
-        newline,
-        baseStamp: loaded.stamp,
-        savedHeader: header,
-        forcedModified: loaded.normalized,
-        disk: "same",
-        diskStamp: null,
-      }));
-      refreshModified(id);
+    reloadFromDisk: reload,
+
+    async reconcile(changes) {
+      let renamed = false;
+      for (const { from, to } of changes.renamed) {
+        const { tabs } = store.getState();
+        const moving = tabs.find((tab) => tab.path === from);
+        if (moving !== undefined && !tabs.some((tab) => tab.path === to)) {
+          updateTab(moving.id, (tab) => ({ ...tab, path: to }));
+          // Re-journals unsaved work under its new path.
+          refreshModified(moving.id);
+          renamed = true;
+        }
+      }
+      if (renamed) {
+        persistSession();
+      }
+      const mentioned = new Set<ScriptPath>([
+        ...changes.paths,
+        ...changes.renamed.map((pair) => pair.to),
+      ]);
+      const affected = store
+        .getState()
+        .tabs.filter((tab) => tab.path !== null && (changes.rescan || mentioned.has(tab.path)));
+      await Promise.all(affected.map((tab) => checkDisk(tab.id)));
     },
 
     setLanguage(id, language) {

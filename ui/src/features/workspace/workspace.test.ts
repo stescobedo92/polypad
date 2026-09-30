@@ -390,3 +390,102 @@ describe("the recovery journal", () => {
     expect(backend.journal.get("b1")?.document.code).toBe("draft");
   });
 });
+
+describe("changes made by other programs", () => {
+  it("reload a tab without unsaved changes silently", async () => {
+    const { backend, buffers, workspace, tab } = setup();
+    backend.write("a.ppad", "old");
+    await workspace.openScript("a.ppad");
+    const theirs = backend.write("a.ppad", "new");
+
+    await workspace.reconcile({ paths: ["a.ppad"], renamed: [], rescan: false });
+
+    expect(buffers.text("b1")).toBe("new");
+    expect(tab("b1")).toEqual(expect.objectContaining({ baseStamp: theirs, modified: false }));
+  });
+
+  it("put a tab with unsaved changes in conflict and keep its text", async () => {
+    const { backend, buffers, workspace, tab } = setup();
+    backend.write("a.ppad", "old");
+    await workspace.openScript("a.ppad");
+    buffers.edit("b1", "mine");
+    const theirs = backend.write("a.ppad", "theirs");
+
+    await workspace.reconcile({ paths: ["a.ppad"], renamed: [], rescan: false });
+
+    expect(buffers.text("b1")).toBe("mine");
+    expect(tab("b1")).toEqual(expect.objectContaining({ disk: "changed", diskStamp: theirs }));
+  });
+
+  it("mark a deleted file as missing and keep the text", async () => {
+    const { backend, buffers, workspace, tab } = setup();
+    backend.write("a.ppad", "kept");
+    await workspace.openScript("a.ppad");
+    backend.remove("a.ppad");
+
+    await workspace.reconcile({ paths: ["a.ppad"], renamed: [], rescan: false });
+
+    expect(tab("b1")?.disk).toBe("missing");
+    expect(buffers.text("b1")).toBe("kept");
+  });
+
+  it("ignore the tab's own saves", async () => {
+    const { backend, buffers, workspace, tab } = setup();
+    backend.write("a.ppad", "old");
+    await workspace.openScript("a.ppad");
+    buffers.edit("b1", "saved by us");
+    await workspace.save("b1");
+
+    await workspace.reconcile({ paths: ["a.ppad"], renamed: [], rescan: false });
+
+    expect(tab("b1")).toEqual(expect.objectContaining({ disk: "same", modified: false }));
+  });
+
+  it("clear a conflict once the file is back to the tab's version", async () => {
+    const { backend, buffers, workspace, tab } = setup();
+    backend.write("a.ppad", "old");
+    await workspace.openScript("a.ppad");
+    const base = backend.files.get("a.ppad");
+    buffers.edit("b1", "mine");
+    backend.write("a.ppad", "theirs");
+    await workspace.reconcile({ paths: ["a.ppad"], renamed: [], rescan: false });
+    if (base !== undefined) backend.files.set("a.ppad", base);
+
+    await workspace.reconcile({ paths: ["a.ppad"], renamed: [], rescan: false });
+
+    expect(tab("b1")?.disk).toBe("same");
+  });
+
+  it("follow a script renamed elsewhere", async () => {
+    const { backend, workspace, tab } = setup();
+    backend.write("a.ppad", "x");
+    await workspace.openScript("a.ppad");
+    const file = backend.files.get("a.ppad");
+    backend.remove("a.ppad");
+    if (file !== undefined) backend.files.set("renamed/b.ppad", file);
+
+    await workspace.reconcile({
+      paths: [],
+      renamed: [{ from: "a.ppad", to: "renamed/b.ppad" }],
+      rescan: false,
+    });
+    await workspace.settled();
+
+    expect(tab("b1")).toEqual(expect.objectContaining({ path: "renamed/b.ppad", disk: "same" }));
+    expect(backend.session?.tabs).toEqual([{ bufferId: "b1", path: "renamed/b.ppad" }]);
+  });
+
+  it("check every open script on a rescan", async () => {
+    const { backend, workspace, tab } = setup();
+    backend.write("a.ppad", "a");
+    backend.write("b.ppad", "b");
+    await workspace.openScript("a.ppad");
+    await workspace.openScript("b.ppad");
+    backend.remove("a.ppad");
+    backend.remove("b.ppad");
+
+    await workspace.reconcile({ paths: [], renamed: [], rescan: true });
+
+    expect([tab("b1")?.disk, tab("b2")?.disk]).toEqual(["missing", "missing"]);
+  });
+});
