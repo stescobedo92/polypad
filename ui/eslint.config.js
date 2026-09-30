@@ -40,12 +40,12 @@ export default defineConfig([
   },
   {
     // The IPC layer is the single place allowed to import the Tauri JS API.
-    files: ["src/shared/ipc/**/*.ts", "src/test/**/*.ts"],
+    files: ["src/shared/ipc/**/*.ts"],
     rules: { "no-restricted-imports": "off" },
   },
   {
     // Tests may additionally fake the IPC transport, but still call commands via the wrappers.
-    files: ["src/**/*.test.{ts,tsx}"],
+    files: ["src/**/*.test.{ts,tsx}", "src/test/**/*.ts"],
     rules: {
       "no-restricted-imports": [
         "error",

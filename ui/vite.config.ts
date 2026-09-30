@@ -19,7 +19,8 @@ export default defineConfig({
     ...(host ? { hmr: { protocol: "ws", host, port: 5174 } } : {}),
     watch: { ignored: ["**/src-tauri/**"] },
   },
-  envPrefix: ["VITE_", "TAURI_ENV_*"],
+  // Plain prefixes: Vite matches with startsWith, so a trailing "*" would be taken literally.
+  envPrefix: ["VITE_", "TAURI_ENV_"],
   build: {
     // Vite's default target (Baseline Widely Available: Chrome 111, Safari 16.4) matches the
     // browser floor of Tailwind CSS v4, so no lower target is useful. See docs/adr/0004.

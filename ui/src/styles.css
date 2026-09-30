@@ -146,7 +146,8 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-accent);
+    /* Resolved per element: --color-accent is computed once on :root, where --accent is unset. */
+    outline: 2px solid var(--accent, var(--pencil));
     outline-offset: -2px;
   }
 
