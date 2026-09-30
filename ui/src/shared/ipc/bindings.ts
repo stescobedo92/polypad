@@ -125,7 +125,7 @@ export const commands = {
 	 *  `scriptsFolderUnavailable` when the chosen folder cannot be used.
 	 */
 	chooseScriptsFolder: (title: string) => typedError<{
-	/**  Folder name (never the full path, which stays in Rust). */
+	/**  Folder name, empty for a volume root (never the full path, which stays in Rust). */
 	name: string,
 	/**  Its contents. */
 	tree: ScriptTree,
@@ -505,8 +505,16 @@ export type RecoveredTab = RecoveredTab_Serialize | RecoveredTab_Deserialize;
 export type RecoveredTab_Deserialize = {
 	/**  The tab's buffer. */
 	bufferId: BufferId,
-	/**  The script it edits; `None` for an untitled script. */
+	/**
+	 *  The script it edits; `None` for an untitled script, or for work detached from a scripts
+	 *  folder that is not open now.
+	 */
 	path: ScriptPath | null,
+	/**
+	 *  Set when the buffer edited this script in another scripts folder: it comes back untitled,
+	 *  so it can only be saved under a new name, never over an unrelated file.
+	 */
+	previousPath: ScriptPath | null,
 	/**  Unsaved changes; `None` when the tab was clean and should be reloaded from disk. */
 	snapshot: BufferSnapshot_Deserialize | null,
 };
@@ -515,8 +523,16 @@ export type RecoveredTab_Deserialize = {
 export type RecoveredTab_Serialize = {
 	/**  The tab's buffer. */
 	bufferId: BufferId,
-	/**  The script it edits; `None` for an untitled script. */
+	/**
+	 *  The script it edits; `None` for an untitled script, or for work detached from a scripts
+	 *  folder that is not open now.
+	 */
 	path: ScriptPath | null,
+	/**
+	 *  Set when the buffer edited this script in another scripts folder: it comes back untitled,
+	 *  so it can only be saved under a new name, never over an unrelated file.
+	 */
+	previousPath: ScriptPath | null,
 	/**  Unsaved changes; `None` when the tab was clean and should be reloaded from disk. */
 	snapshot: BufferSnapshot_Serialize | null,
 };
@@ -558,7 +574,7 @@ export type ScriptsChanged = ScriptChanges;
 
 /**  The scripts folder as the explorer shows it. */
 export type ScriptsFolder = {
-	/**  Folder name (never the full path, which stays in Rust). */
+	/**  Folder name, empty for a volume root (never the full path, which stays in Rust). */
 	name: string,
 	/**  Its contents. */
 	tree: ScriptTree,
@@ -620,6 +636,11 @@ export type WorkspaceSnapshot_Deserialize = {
 	session: RecoveredSession_Deserialize,
 	/**  Whether unsaved changes are journaled; `false` means a crash would lose them. */
 	recoveryAvailable: boolean,
+	/**
+	 *  Name of the chosen scripts folder when it could not be opened at start-up (an unplugged
+	 *  drive, a moved folder); `scriptsFolder` is then the default folder, or `null`.
+	 */
+	unavailableFolder: string | null,
 };
 
 /**  Everything the UI needs to draw its first frame. */
@@ -632,6 +653,11 @@ export type WorkspaceSnapshot_Serialize = {
 	session: RecoveredSession_Serialize,
 	/**  Whether unsaved changes are journaled; `false` means a crash would lose them. */
 	recoveryAvailable: boolean,
+	/**
+	 *  Name of the chosen scripts folder when it could not be opened at start-up (an unplugged
+	 *  drive, a moved folder); `scriptsFolder` is then the default folder, or `null`.
+	 */
+	unavailableFolder: string | null,
 };
 
 /* Tauri Specta runtime */

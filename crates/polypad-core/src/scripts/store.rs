@@ -165,6 +165,10 @@ impl ScriptStore {
     /// [`ScriptError::Root`] when the folder cannot be created or resolved.
     pub fn open(root: &Path, trash: Box<dyn Trash>) -> Result<Self, ScriptError> {
         fs::create_dir_all(root).map_err(ScriptError::Root)?;
+        Self::from_root(root, trash)
+    }
+
+    fn from_root(root: &Path, trash: Box<dyn Trash>) -> Result<Self, ScriptError> {
         let root_real = fs::canonicalize(root).map_err(ScriptError::Root)?;
         // Drops the verbatim `\\?\` form where Windows allows, since the trash's shell APIs
         // reject it.
@@ -174,6 +178,24 @@ impl ScriptStore {
             root_real,
             trash,
         })
+    }
+
+    /// Opens the scripts folder at `root`, which must already exist.
+    ///
+    /// Used for a folder the user chose earlier: recreating it empty would hide that it is gone
+    /// (an unplugged drive, a folder moved elsewhere).
+    ///
+    /// # Errors
+    ///
+    /// [`ScriptError::Root`] when the folder does not exist or cannot be resolved.
+    pub fn open_existing(root: &Path, trash: Box<dyn Trash>) -> Result<Self, ScriptError> {
+        if !root.is_dir() {
+            return Err(ScriptError::Root(io::Error::new(
+                io::ErrorKind::NotFound,
+                "the scripts folder does not exist",
+            )));
+        }
+        Self::from_root(root, trash)
     }
 
     /// Canonical location of the scripts folder.
@@ -657,6 +679,19 @@ mod tests {
 
         assert!(f.root.is_dir());
         assert_eq!(f.store.root(), dunce::canonicalize(&f.root).unwrap());
+    }
+
+    #[test]
+    fn a_configured_folder_that_disappeared_is_not_recreated() {
+        let temp = tempfile::tempdir().unwrap();
+        let gone = temp.path().join("unplugged-drive");
+
+        let result = ScriptStore::open_existing(&gone, Box::new(super::SystemTrash));
+
+        assert!(matches!(result, Err(ScriptError::Root(_))));
+        assert!(!gone.exists());
+        fs::create_dir(&gone).unwrap();
+        assert!(ScriptStore::open_existing(&gone, Box::new(super::SystemTrash)).is_ok());
     }
 
     #[test]

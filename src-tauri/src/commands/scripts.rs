@@ -1,7 +1,5 @@
 //! Scripts and folders under the scripts root.
 
-use std::path::Path;
-
 use polypad_core::{
     ppad::Document,
     scripts::{
@@ -16,13 +14,16 @@ use tauri::{AppHandle, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 
 use super::{blocking, store, workspace};
-use crate::{error::CommandError, workspace::watch_scripts};
+use crate::{
+    error::CommandError,
+    workspace::{folder_name, watch_scripts},
+};
 
 /// The scripts folder as the explorer shows it.
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ScriptsFolder {
-    /// Folder name (never the full path, which stays in Rust).
+    /// Folder name, empty for a volume root (never the full path, which stays in Rust).
     pub name: String,
     /// Its contents.
     pub tree: ScriptTree,
@@ -50,13 +51,6 @@ impl ScriptsFolder {
             tree: store.list()?,
         })
     }
-}
-
-fn folder_name(root: &Path) -> String {
-    root.file_name().map_or_else(
-        || root.to_string_lossy().into_owned(),
-        |name| name.to_string_lossy().into_owned(),
-    )
 }
 
 fn entry_name(name: &str) -> Result<EntryName, CommandError> {

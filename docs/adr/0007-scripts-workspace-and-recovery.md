@@ -25,6 +25,11 @@ next start without prompting.
 - Loading never drops work: snapshots the session does not list come back as extra tabs,
   unreadable files are moved aside, and files from a newer journal version are left alone.
 - Buffer ids become file names, so they are restricted to `[A-Za-z0-9-]`, at most 64 characters.
+- Journaled work records the scripts folder it belongs to (a hash of its canonical path, added by
+  Rust, never seen by the UI). If a different folder is open at the next start (the chosen one
+  was unavailable and PolyPad fell back to the default), unsaved buffers come back detached:
+  untitled, with their previous path only as a hint, so they can never be saved over an
+  unrelated file with the same relative path. Clean tabs of another folder are dropped.
 
 **Conflict-checked saves.** A save names the state the caller expects on disk: the content
 stamp (BLAKE3 of the bytes) it read, or "no file". Anything else is a conflict and the file is
@@ -53,7 +58,9 @@ case: after a save, the tab's stamp already matches the disk.
 **Nothing blocks start-up.** Preferences fall back to defaults (an invalid file is moved aside);
 the configured scripts folder falls back to `Documents/PolyPad` (then `~/PolyPad`), and without a
 usable folder the app still starts and asks for one; without a journal, editing works and the UI
-warns that crash recovery is off.
+warns that crash recovery is off. Only the default folder is created: a configured folder that is
+missing (an unplugged drive, a moved folder) is reported to the UI instead of being recreated
+empty, and stays in the preferences so it is used again once it is back.
 
 ### Amendment to ADR-0002 (error contract)
 

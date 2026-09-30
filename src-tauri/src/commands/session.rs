@@ -23,6 +23,9 @@ pub struct WorkspaceSnapshot {
     pub session: RecoveredSession,
     /// Whether unsaved changes are journaled; `false` means a crash would lose them.
     pub recovery_available: bool,
+    /// Name of the chosen scripts folder when it could not be opened at start-up (an unplugged
+    /// drive, a moved folder); `scriptsFolder` is then the default folder, or `null`.
+    pub unavailable_folder: Option<String>,
 }
 
 impl From<RecoveryError> for CommandError {
@@ -51,7 +54,7 @@ pub async fn workspace_snapshot(app: AppHandle) -> Result<WorkspaceSnapshot, Com
             None => None,
         };
         let session = match workspace.journal() {
-            Some(journal) => journal.load().unwrap_or_else(|error| {
+            Some(journal) => journal.load(workspace.folder_id().as_ref()).unwrap_or_else(|error| {
                 tracing::warn!(error = %DisplayChain(&error), "cannot read the recovery journal");
                 RecoveredSession::default()
             }),
@@ -62,6 +65,7 @@ pub async fn workspace_snapshot(app: AppHandle) -> Result<WorkspaceSnapshot, Com
             scripts_folder,
             session,
             recovery_available: workspace.journal().is_some(),
+            unavailable_folder: workspace.unavailable_folder().map(str::to_owned),
         })
     })
     .await
@@ -84,7 +88,7 @@ pub async fn journal_buffer(
         let journal = workspace
             .journal()
             .ok_or(CommandError::RecoveryUnavailable)?;
-        Ok(journal.put_buffer(&buffer_id, &snapshot)?)
+        Ok(journal.put_buffer(&buffer_id, &snapshot, workspace.folder_id().as_ref())?)
     })
     .await
 }
@@ -120,7 +124,7 @@ pub async fn set_session(app: AppHandle, session: Session) -> Result<(), Command
         let journal = workspace
             .journal()
             .ok_or(CommandError::RecoveryUnavailable)?;
-        Ok(journal.set_session(&session)?)
+        Ok(journal.set_session(&session, workspace.folder_id().as_ref())?)
     })
     .await
 }

@@ -148,7 +148,9 @@ top.Dump("Top orders");
 ### 5.2 Scripts folder and tree
 
 - **Root:** `preferences.scriptsRoot`; default `document_dir()/PolyPad`, falling back to
-  `home_dir()/PolyPad` when the platform has no documents folder. Created on first start.
+  `home_dir()/PolyPad` when the platform has no documents folder. Only the default folder is
+  created; a configured folder that is missing is reported (`unavailableFolder` in the start-up
+  snapshot) and the default one is used for the session.
 - **Changing the root:** *File → Choose scripts folder…* opens the native picker from Rust. The
   switch is refused while tabs of the current root have unsaved changes; clean tabs of the old root
   are closed, untitled buffers are unaffected. The watcher restarts on the new root.
@@ -203,6 +205,9 @@ top.Dump("Top orders");
   - All journal files are written with `atomic_fs`.
 - **Normal close:** Rust intercepts `CloseRequested`, emits `FlushRequested`, and closes when the UI
   calls `ready_to_close` or after 1 s, whichever comes first. No "unsaved changes" prompt.
+- **Folder identity:** the journal records which scripts folder each tab and snapshot belongs
+  to. Work from a folder that is not open at start-up comes back detached (untitled, with
+  `previousPath` as a hint); clean tabs of that folder are dropped.
 - **Start-up:** every session tab comes back. A tab with a journal entry is restored dirty with its
   journaled text; if the disk stamp no longer matches `baseStamp`, the conflict banner appears. A
   buffer file not listed in the session (a crash between writes) is restored as an extra tab, never
