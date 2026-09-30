@@ -3,6 +3,7 @@
 //! This crate must not depend on Tauri: the commands in `src-tauri` are thin adapters over the
 //! services defined here, which keeps the logic testable without a WebView.
 
+pub mod atomic_fs;
 pub mod language;
 pub mod ppad;
 pub mod telemetry;
