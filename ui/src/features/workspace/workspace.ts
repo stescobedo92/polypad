@@ -7,18 +7,20 @@
  */
 import { createStore, type StoreApi } from "zustand/vanilla";
 
-import type {
-  BufferId,
-  BufferSnapshot,
-  ContentStamp,
-  CreatedScript,
-  Document,
-  Header,
-  LanguageId,
-  LoadedScript,
-  Newline,
-  ScriptPath,
-  Session,
+import {
+  CommandFailure,
+  type BufferId,
+  type BufferSnapshot,
+  type ContentStamp,
+  type CreatedScript,
+  type Document,
+  type ExecutionMode,
+  type Header,
+  type LanguageId,
+  type LoadedScript,
+  type Newline,
+  type ScriptPath,
+  type Session,
 } from "../../shared/ipc";
 import { findLanguage } from "../../shared/languages";
 import type { TextBuffers } from "./textBuffers";
@@ -60,6 +62,8 @@ export interface Tab {
   /** The tab differs from its file (text, header, or an upgrade applied while loading). */
   readonly modified: boolean;
   readonly disk: DiskState;
+  /** Stamp of what is on disk when {@link disk} is `"changed"`. */
+  readonly diskStamp: ContentStamp | null;
   /** Header as last saved or loaded; a different current header makes the tab modified. */
   readonly savedHeader: Header;
   /** Modified regardless of the text (loaded with an upgrade, or recovered from the journal). */
@@ -89,8 +93,30 @@ export interface Workspace {
   requestClose(id: BufferId): Promise<"closed" | "unsaved">;
   /** Closes a tab and forgets its unsaved changes. */
   discardAndClose(id: BufferId): Promise<void>;
+  /**
+   * Saves a tab to its file. `"conflict"` means the file changed on disk since the tab read it
+   * (it is left untouched); `"needs-name"` means the tab is untitled and needs {@link saveAs}.
+   */
+  save(id: BufferId): Promise<SaveOutcome>;
+  /** Saves an untitled tab as `name` (`.ppad` is added when missing) in `parent`. */
+  saveAs(id: BufferId, parent: ScriptPath | null, name: string): Promise<ScriptPath>;
+  /** Resolves a conflict in favour of the tab: the next save overwrites or recreates the file. */
+  keepMine(id: BufferId): void;
+  /** Replaces the tab with the file on disk, discarding its unsaved changes. */
+  reloadFromDisk(id: BufferId): Promise<void>;
+  /** Switches the language, keeping the mode when the new language offers it. */
+  setLanguage(id: BufferId, language: LanguageId): void;
+  setMode(id: BufferId, mode: ExecutionMode): void;
   /** Resolves once the background writes started so far have finished. */
   settled(): Promise<void>;
+}
+
+export type SaveOutcome = "saved" | "conflict" | "needs-name";
+
+/** File name for a script called `name`: adds `.ppad` unless it is already there. */
+export function scriptFileName(name: string): string {
+  const trimmed = name.trim();
+  return /\.ppad$/i.test(trimmed) ? trimmed : `${trimmed}.ppad`;
 }
 
 /** Header of a new script in `language`, as Rust writes it. */
@@ -154,6 +180,45 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
     track(sessionWrites);
   }
 
+  function forgetJournal(id: BufferId): void {
+    track(
+      ipc.discardBuffer(id).catch((error: unknown) => {
+        console.warn("cannot forget unsaved changes", error);
+      }),
+    );
+  }
+
+  /** The tab's document as it would be written. */
+  function documentOf(tab: Tab): Document {
+    return { header: tab.header, code: buffers.text(tab.id), newline: tab.newline };
+  }
+
+  /** Records that `document` is now on disk with `stamp`. */
+  function markSaved(id: BufferId, document: Document, stamp: ContentStamp): void {
+    buffers.markSaved(id, document.code);
+    updateTab(id, (tab) => ({
+      ...tab,
+      baseStamp: stamp,
+      savedHeader: document.header,
+      forcedModified: false,
+      disk: "same",
+      diskStamp: null,
+    }));
+    refreshModified(id);
+    forgetJournal(id);
+  }
+
+  function changeHeader(id: BufferId, change: (header: Header) => Header): void {
+    const tab = find(id);
+    if (tab === undefined) return;
+    const header = change(tab.header);
+    if (header.language !== tab.header.language) {
+      buffers.setLanguage(id, header.language);
+    }
+    updateTab(id, (current) => ({ ...current, header }));
+    refreshModified(id);
+  }
+
   function addTab(tab: Tab): void {
     store.setState((state) => ({ tabs: [...state.tabs, tab], activeId: tab.id }));
     persistSession();
@@ -177,11 +242,7 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
     });
     buffers.dispose(id);
     persistSession();
-    track(
-      ipc.discardBuffer(id).catch((error: unknown) => {
-        console.warn("cannot forget unsaved changes", error);
-      }),
-    );
+    forgetJournal(id);
   }
 
   buffers.onDidChange(refreshModified);
@@ -215,6 +276,7 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
         baseStamp: loaded.stamp,
         modified: loaded.normalized,
         disk: "same",
+        diskStamp: null,
         savedHeader: header,
         forcedModified: loaded.normalized,
       });
@@ -234,6 +296,7 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
         baseStamp: null,
         modified: false,
         disk: "same",
+        diskStamp: null,
         savedHeader: header,
         forcedModified: false,
       });
@@ -253,6 +316,83 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
     discardAndClose(id) {
       close(id);
       return Promise.resolve();
+    },
+
+    async save(id) {
+      const tab = find(id);
+      if (tab === undefined) return "saved";
+      if (tab.path === null) return "needs-name";
+      const document = documentOf(tab);
+      try {
+        const stamp = await ipc.saveScript(tab.path, document, tab.baseStamp);
+        markSaved(id, document, stamp);
+        return "saved";
+      } catch (error) {
+        if (error instanceof CommandFailure && error.error.code === "conflict") {
+          const current = error.error.current;
+          updateTab(id, (latest) => ({
+            ...latest,
+            disk: current === null ? "missing" : "changed",
+            diskStamp: current,
+          }));
+          return "conflict";
+        }
+        throw error;
+      }
+    },
+
+    async saveAs(id, parent, name) {
+      const tab = find(id);
+      if (tab === undefined) throw new Error(`no tab ${id}`);
+      const document = documentOf(tab);
+      const created = await ipc.createScript(parent, scriptFileName(name), document);
+      updateTab(id, (latest) => ({ ...latest, path: created.path, untitledNumber: null }));
+      markSaved(id, document, created.stamp);
+      persistSession();
+      return created.path;
+    },
+
+    keepMine(id) {
+      updateTab(id, (tab) =>
+        tab.disk === "same"
+          ? tab
+          : { ...tab, baseStamp: tab.diskStamp, disk: "same", diskStamp: null },
+      );
+    },
+
+    async reloadFromDisk(id) {
+      const tab = find(id);
+      if (tab?.path == null) return;
+      const loaded = await ipc.openScript(tab.path);
+      const { header, code, newline } = loaded.document;
+      buffers.replace(id, code);
+      buffers.setLanguage(id, header.language);
+      updateTab(id, (latest) => ({
+        ...latest,
+        header,
+        newline,
+        baseStamp: loaded.stamp,
+        savedHeader: header,
+        forcedModified: loaded.normalized,
+        disk: "same",
+        diskStamp: null,
+      }));
+      refreshModified(id);
+      forgetJournal(id);
+    },
+
+    setLanguage(id, language) {
+      changeHeader(id, (header) => ({
+        ...header,
+        language,
+        mode: findLanguage(language).modes.includes(header.mode)
+          ? header.mode
+          : findLanguage(language).modes[0],
+      }));
+    },
+
+    setMode(id, mode) {
+      changeHeader(id, (header) => ({ ...header, mode }));
     },
 
     async settled() {

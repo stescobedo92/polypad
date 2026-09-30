@@ -13,8 +13,11 @@ export interface TextBuffers {
   text(id: BufferId): string;
   /** Replaces the text with `text` and makes it the saved state (a reload from disk). */
   replace(id: BufferId, text: string): void;
-  /** Makes the current text the saved state. */
-  markSaved(id: BufferId): void;
+  /**
+   * Makes `text` the saved state: the text that was written, which is not the current text
+   * when the user kept typing while the save was in flight.
+   */
+  markSaved(id: BufferId, text: string): void;
   /** Whether the current text differs from the saved state. */
   isModified(id: BufferId): boolean;
   /** Changes the syntax highlighting of the buffer. */

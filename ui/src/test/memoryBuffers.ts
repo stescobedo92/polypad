@@ -26,9 +26,8 @@ export class MemoryBuffers implements TextBuffers {
     entry.saved = text;
   }
 
-  markSaved(id: BufferId): void {
-    const entry = this.entry(id);
-    entry.saved = entry.text;
+  markSaved(id: BufferId, text: string): void {
+    this.entry(id).saved = text;
   }
 
   isModified(id: BufferId): boolean {
