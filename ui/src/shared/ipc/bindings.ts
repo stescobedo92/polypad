@@ -251,6 +251,14 @@ path: ScriptPath } |
 path: ScriptPath; 
 /**  Why. */
 problem: DocumentProblem } | 
+/**  The document is too large to be saved as a script (it could not be reopened). */
+{ code: "documentTooLarge"; 
+/**  The script. */
+path: ScriptPath } | 
+/**  The operating system trash refused the entry (network drives often have none). */
+{ code: "trashUnavailable"; 
+/**  The entry. */
+path: ScriptPath } | 
 /**  No scripts folder could be opened; the user has to choose one. */
 { code: "scriptsFolderUnavailable" } | 
 /**  The recovery journal cannot be written; editing works, crash recovery does not. */

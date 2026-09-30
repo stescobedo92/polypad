@@ -24,6 +24,9 @@ use crate::{
 /// Most entries [`ScriptStore::list`] returns before reporting the tree as truncated.
 pub const MAX_TREE_ENTRIES: usize = 10_000;
 
+/// Deepest folder level listed; deeper folders are left out and the tree reported truncated.
+pub const MAX_TREE_DEPTH: usize = 64;
+
 /// Fingerprint of a script's bytes, used to notice changes made by other programs.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type), specta(transparent))]
@@ -106,6 +109,9 @@ pub enum ScriptError {
     /// The file is not UTF-8 text.
     #[error("{0} is not UTF-8 text")]
     InvalidEncoding(ScriptPath),
+    /// The document is larger than a script may be, so it could not be reopened.
+    #[error("{0} is too large to be saved as a script")]
+    TooLarge(ScriptPath),
     /// The file is not a valid script.
     #[error("{path} is not a valid script")]
     Document {
@@ -193,7 +199,9 @@ impl ScriptStore {
             budget: limit,
             truncated: false,
         };
-        let entries = walk.folder(&self.root, None).map_err(ScriptError::Root)?;
+        let entries = walk
+            .folder(&self.root, None, 0)
+            .map_err(ScriptError::Root)?;
         Ok(ScriptTree {
             entries,
             truncated: walk.truncated,
@@ -461,6 +469,10 @@ impl ScriptStore {
         document: &Document,
     ) -> Result<ContentStamp, ScriptError> {
         let text = ppad::serialize(document).map_err(ScriptError::Encode)?;
+        // A larger file could be written but never read back.
+        if text.len() > MAX_DOCUMENT_BYTES {
+            return Err(ScriptError::TooLarge(path.clone()));
+        }
         atomic_fs::write(full, text.as_bytes()).map_err(io_error(path))?;
         Ok(ContentStamp::of(text.as_bytes()))
     }
@@ -480,7 +492,13 @@ struct Walk {
 }
 
 impl Walk {
-    fn folder(&mut self, dir: &Path, folder: Option<&ScriptPath>) -> io::Result<Vec<TreeEntry>> {
+    /// Lists `dir`, whose entries sit `depth + 1` levels below the root.
+    fn folder(
+        &mut self,
+        dir: &Path,
+        folder: Option<&ScriptPath>,
+        depth: usize,
+    ) -> io::Result<Vec<TreeEntry>> {
         let mut entries = Vec::new();
         for item in fs::read_dir(dir)? {
             let item = item?;
@@ -508,10 +526,17 @@ impl Walk {
             }
             self.budget -= 1;
             entries.push(if is_folder {
-                let children = self.folder(&item.path(), Some(&path)).unwrap_or_else(|error| {
-                    tracing::warn!(%path, %error, "skipping the contents of an unreadable folder");
+                // Recursion depth is bounded so a pathological tree cannot exhaust the stack.
+                let children = if depth + 1 < MAX_TREE_DEPTH {
+                    self.folder(&item.path(), Some(&path), depth + 1)
+                        .unwrap_or_else(|error| {
+                            tracing::warn!(%path, %error, "skipping the contents of an unreadable folder");
+                            Vec::new()
+                        })
+                } else {
+                    self.truncated = true;
                     Vec::new()
-                });
+                };
                 TreeEntry::Folder {
                     path,
                     name: file_name,
@@ -795,6 +820,75 @@ mod tests {
         let renamed = f.store.rename(&created, &name("short.ppad")).unwrap();
         f.store.delete(&renamed).unwrap();
         assert!(!f.root.join(&folder).join("short.ppad").exists());
+    }
+
+    #[test]
+    fn very_deep_folders_are_cut_off_instead_of_exhausting_the_stack() {
+        let f = fixture();
+        let mut deep = f.root.clone();
+        for _ in 0..(super::MAX_TREE_DEPTH + 10) {
+            deep = deep.join("d");
+        }
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(deep.join("bottom.ppad"), SAMPLE).unwrap();
+        write(&f.root, "top.ppad", SAMPLE);
+
+        let tree = f.store.list().unwrap();
+
+        assert!(tree.truncated);
+        assert!(tree.entries.contains(&script("top.ppad")));
+        let mut depth = 0;
+        let mut level = &tree.entries;
+        while let Some(TreeEntry::Folder { children, .. }) = level.first() {
+            depth += 1;
+            level = children;
+        }
+        assert_eq!(depth, super::MAX_TREE_DEPTH);
+    }
+
+    #[test]
+    fn documents_too_large_to_reopen_are_not_saved() {
+        let f = fixture();
+        write(&f.root, "a.ppad", SAMPLE);
+        let stamp = f.store.read(&path("a.ppad")).unwrap().stamp;
+        let huge = document(&"x".repeat(crate::ppad::MAX_DOCUMENT_BYTES));
+
+        let saved = f.store.save(&path("a.ppad"), &huge, Some(&stamp));
+        let created = f.store.create_script(None, &name("b.ppad"), &huge);
+
+        assert!(matches!(saved, Err(ScriptError::TooLarge(p)) if p == path("a.ppad")));
+        assert!(matches!(created, Err(ScriptError::TooLarge(_))));
+        assert_eq!(fs::read_to_string(f.root.join("a.ppad")).unwrap(), SAMPLE);
+        assert!(!f.root.join("b.ppad").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn junctions_that_leave_the_root_are_refused() {
+        let f = fixture();
+        fs::write(f.bin.join("secret.ppad"), SAMPLE).unwrap();
+        // Junctions need no privilege on Windows, unlike symbolic links.
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(f.root.join("linked"))
+            .arg(&f.bin)
+            .output()
+            .unwrap();
+        assert!(status.status.success(), "{status:?}");
+
+        assert!(matches!(
+            f.store.read(&path("linked/secret.ppad")),
+            Err(ScriptError::OutsideRoot(_))
+        ));
+        assert!(matches!(
+            f.store
+                .create_script(Some(&path("linked")), &name("x.ppad"), &document("")),
+            Err(ScriptError::OutsideRoot(_))
+        ));
+        assert_eq!(
+            fs::read_to_string(f.bin.join("secret.ppad")).unwrap(),
+            SAMPLE
+        );
     }
 
     #[test]

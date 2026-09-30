@@ -86,6 +86,18 @@ pub enum CommandError {
         /// Why.
         problem: DocumentProblem,
     },
+    /// The document is too large to be saved as a script (it could not be reopened).
+    #[error("{path} is too large to be saved")]
+    DocumentTooLarge {
+        /// The script.
+        path: ScriptPath,
+    },
+    /// The operating system trash refused the entry (network drives often have none).
+    #[error("{path} could not be moved to the trash")]
+    TrashUnavailable {
+        /// The entry.
+        path: ScriptPath,
+    },
     /// No scripts folder could be opened; the user has to choose one.
     #[error("the scripts folder is not available")]
     ScriptsFolderUnavailable,
@@ -144,6 +156,11 @@ impl From<ScriptError> for CommandError {
             ScriptError::NotAFolder(path) => Self::NotAFolder { path },
             ScriptError::MoveIntoItself(path) => Self::MoveIntoItself { path },
             ScriptError::OutsideRoot(path) => Self::OutsideScriptsFolder { path },
+            ScriptError::TooLarge(path) => Self::DocumentTooLarge { path },
+            ScriptError::Trash { path, source } => {
+                tracing::warn!(%path, error = %DisplayChain(&source), "the trash refused an entry");
+                Self::TrashUnavailable { path }
+            }
             ScriptError::InvalidEncoding(path) => Self::UnsupportedDocument {
                 path,
                 problem: DocumentProblem::InvalidEncoding,
@@ -276,6 +293,17 @@ mod tests {
                     path: p.clone(),
                     current: Some(ContentStamp::of(b"disk")),
                 },
+            ),
+            (
+                ScriptError::TooLarge(p.clone()),
+                CommandError::DocumentTooLarge { path: p.clone() },
+            ),
+            (
+                ScriptError::Trash {
+                    path: p.clone(),
+                    source: io::Error::other("no recycle bin on this volume"),
+                },
+                CommandError::TrashUnavailable { path: p.clone() },
             ),
             (
                 ScriptError::InvalidEncoding(p.clone()),
