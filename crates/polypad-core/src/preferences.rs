@@ -33,6 +33,9 @@ pub struct Preferences {
     version: u64,
     /// Fields this build does not know.
     extra: Map<String, Value>,
+    /// `false` when the file existed but could not be read: saving would replace preferences
+    /// this session never saw.
+    writable: bool,
 }
 
 /// The part of the preferences the UI sees; it never includes file system paths.
@@ -55,6 +58,7 @@ impl Default for Preferences {
             ui: UiPreferences::default(),
             version: PREFERENCES_VERSION,
             extra: Map::new(),
+            writable: true,
         }
     }
 }
@@ -63,25 +67,22 @@ impl Default for Preferences {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PreferencesRepr {
-    #[serde(default = "current_version")]
-    version: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
+    version: Option<u64>,
+    #[serde(default, deserialize_with = "lenient")]
     scripts_root: Option<PathBuf>,
-    #[serde(default)]
-    layout: Layout,
-    #[serde(default)]
-    keybindings: BTreeMap<String, Option<String>>,
+    #[serde(default, deserialize_with = "lenient")]
+    layout: Option<Layout>,
+    #[serde(default, deserialize_with = "lenient")]
+    keybindings: Option<BTreeMap<String, Option<String>>>,
     #[serde(default, deserialize_with = "lenient")]
     last_language: Option<Language>,
     #[serde(flatten)]
     extra: Map<String, Value>,
 }
 
-const fn current_version() -> u64 {
-    PREFERENCES_VERSION
-}
-
-/// Treats a value this build cannot decode (such as a language added later) as absent.
+/// Treats a value this build cannot decode (a language added later, a hand-edited layout that is
+/// not a map) as absent, so one bad value never costs the others.
 fn lenient<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
@@ -104,6 +105,9 @@ pub enum PreferencesError {
     /// The file cannot be written.
     #[error("the preferences file cannot be written")]
     Io(#[from] io::Error),
+    /// The file could not be read at start-up, so it is left untouched for this session.
+    #[error("the preferences file could not be read, so it is not overwritten")]
+    NotLoaded,
     /// The preferences could not be encoded.
     #[error("the preferences could not be encoded")]
     Encode(#[from] serde_json::Error),
@@ -123,20 +127,24 @@ impl PreferencesFile {
             Ok(text) => text,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Preferences::default(),
             Err(error) => {
-                tracing::warn!(%error, "cannot read the preferences; using defaults");
-                return Preferences::default();
+                tracing::warn!(%error, "cannot read the preferences; using defaults without saving");
+                return Preferences {
+                    writable: false,
+                    ..Preferences::default()
+                };
             }
         };
         match serde_json::from_str::<PreferencesRepr>(&text) {
             Ok(repr) => Preferences {
                 scripts_root: repr.scripts_root,
                 ui: UiPreferences {
-                    layout: repr.layout,
-                    keybindings: repr.keybindings,
+                    layout: repr.layout.unwrap_or_default(),
+                    keybindings: repr.keybindings.unwrap_or_default(),
                     last_language: repr.last_language,
                 },
-                version: repr.version,
+                version: repr.version.unwrap_or(PREFERENCES_VERSION),
                 extra: repr.extra,
+                writable: true,
             },
             Err(error) => {
                 tracing::warn!(%error, "the preferences are invalid; moving them aside and using defaults");
@@ -150,13 +158,17 @@ impl PreferencesFile {
     ///
     /// # Errors
     ///
-    /// Fails when the file cannot be written.
+    /// Fails when the file cannot be written, or with [`PreferencesError::NotLoaded`] when these
+    /// preferences are defaults standing in for a file that could not be read.
     pub fn save(&self, preferences: &Preferences) -> Result<(), PreferencesError> {
+        if !preferences.writable {
+            return Err(PreferencesError::NotLoaded);
+        }
         let repr = PreferencesRepr {
-            version: preferences.version.max(PREFERENCES_VERSION),
+            version: Some(preferences.version.max(PREFERENCES_VERSION)),
             scripts_root: preferences.scripts_root.clone(),
-            layout: preferences.ui.layout.clone(),
-            keybindings: preferences.ui.keybindings.clone(),
+            layout: Some(preferences.ui.layout.clone()),
+            keybindings: Some(preferences.ui.keybindings.clone()),
             last_language: preferences.ui.last_language,
             extra: preferences.extra.clone(),
         };
@@ -273,6 +285,63 @@ mod tests {
 
         assert_eq!(loaded.ui.last_language, None);
         assert_eq!(loaded.scripts_root, Some(PathBuf::from("/scripts")));
+    }
+
+    #[test]
+    fn a_malformed_value_is_dropped_without_losing_the_rest() {
+        let (_temp, preferences, path) = file();
+        fs::write(
+            &path,
+            r#"{"version":1,"layout":"wide","keybindings":{"palette.open":5},"scriptsRoot":12,"lastLanguage":"go"}"#,
+        )
+        .unwrap();
+
+        let loaded = preferences.load();
+
+        assert_eq!(loaded.ui.last_language, Some(Language::Go));
+        assert!(loaded.ui.layout.is_empty());
+        assert!(loaded.ui.keybindings.is_empty());
+        assert_eq!(loaded.scripts_root, None);
+        assert!(path.exists(), "a readable file must not be moved aside");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_file_that_could_not_be_read_is_never_overwritten() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let (_temp, preferences, path) = file();
+        let original = r#"{"version":1,"scriptsRoot":"D:\Scripts"}"#;
+        fs::write(&path, original).unwrap();
+        // A sync client holding the file exclusively, as OneDrive sometimes does.
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        let loaded = preferences.load();
+        drop(lock);
+
+        assert_eq!(loaded.scripts_root, None);
+        assert!(preferences.save(&loaded).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_that_could_not_be_read_is_never_overwritten() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_temp, preferences, path) = file();
+        let original = r#"{"version":1,"scriptsRoot":"/media/usb/Scripts"}"#;
+        fs::write(&path, original).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+        let loaded = preferences.load();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+
+        assert_eq!(loaded.scripts_root, None);
+        assert!(preferences.save(&loaded).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
     }
 
     #[test]
