@@ -13,7 +13,7 @@ pub mod workspace;
 use std::{path::PathBuf, process::ExitCode};
 
 use polypad_core::telemetry::{self, TelemetryConfig, TelemetryGuard};
-use tauri::{App, Manager, WindowEvent};
+use tauri::{App, AppHandle, Manager, RunEvent, WindowEvent};
 use tauri_plugin_window_state::StateFlags;
 
 use crate::{
@@ -67,14 +67,20 @@ fn try_run() -> Result<ExitCode, tauri::Error> {
 
     // `run_return` (unlike `run`) hands control back instead of calling `process::exit`, so
     // dropping the telemetry guard below flushes the last buffered log records.
-    let exit_code = app.run_return(|_, _| {});
+    let exit_code = app.run_return(|app, event| {
+        // Config windows are only created once the event loop starts, so `Ready` is the first
+        // moment the main window exists (already restored by window-state).
+        if matches!(event, RunEvent::Ready) {
+            show_main_window(app);
+        }
+    });
     tracing::info!(exit_code, "PolyPad exited");
     drop(telemetry);
 
     Ok(u8::try_from(exit_code).map_or(ExitCode::FAILURE, ExitCode::from))
 }
 
-/// Opens the workspace, starts watching the scripts folder and shows the restored window.
+/// Opens the workspace and starts watching the scripts folder.
 fn start_workspace(app: &App) {
     let paths = app.path();
     let dirs = WorkspaceDirs {
@@ -86,10 +92,15 @@ fn start_workspace(app: &App) {
     app.manage(CloseGuard::default());
     app.manage(Workspace::load(&dirs));
     workspace::watch_scripts(app.handle());
+}
 
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW)
-        && let Err(error) = window.show()
-    {
+/// Shows the main window, which starts hidden so it never flashes at its default geometry.
+fn show_main_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
+        tracing::error!("the main window was not created");
+        return;
+    };
+    if let Err(error) = window.show() {
         tracing::error!(%error, "cannot show the main window");
     }
 }
