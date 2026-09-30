@@ -10,6 +10,10 @@
  * "desk" is the chrome around the work, "paper" is where code and results live, so content
  * surfaces always read as the brightest (light theme) or most lifted (dark theme) layer.
  * The only saturated colour in the chrome is the active language's hue (--accent).
+ *
+ * Text ramp, as contrast on the weaker of desk and paper: ink ≥ 12:1, pencil ≥ 7:1, faint
+ * ≥ 4.5:1. Even the faintest text carries meaning (placeholders, empty states, key hints), so
+ * it must meet WCAG AA for normal text; the steps between the three keep the hierarchy.
  */
 :root {
   color-scheme: light;
@@ -18,8 +22,8 @@
   --desk-raised: #dde1e6;
   --paper: #fafbfc;
   --ink: #1a1f28;
-  --pencil: #5a6372;
-  --faint: #8a93a1;
+  --pencil: #454d5c;
+  --faint: #606976;
   --rule: #d0d6de;
   --danger: #c2362f;
   --ok: #2f8a4c;
@@ -44,8 +48,8 @@
     --desk-raised: #1a1e25;
     --paper: #1d2129;
     --ink: #dde2ea;
-    --pencil: #8c95a5;
-    --faint: #5d6676;
+    --pencil: #a2acbc;
+    --faint: #808a9a;
     --rule: #2b313c;
     --danger: #ef6b62;
     --ok: #5cc27e;
