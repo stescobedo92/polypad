@@ -33,7 +33,11 @@ identically on Windows, macOS and Linux, locally and in CI.
 - **Telemetry** is initialized after `tauri::Builder::build` and before `App::run_return`, not in
   the `setup` hook: a failing setup hook panics inside the event loop, and `App::run` exits the
   process without running destructors, which would lose buffered log records.
-  - A failure to open the log file is not fatal: logging falls back to stderr.
+  - Logging failures are never fatal. If the log file cannot be opened, logging falls back to
+    stderr. If the log directory cannot be resolved at all (no home or data directory), logging
+    also falls back to stderr and no crash report file is written; the default panic hook still
+    reports panics on stderr. A temporary directory is deliberately not used as a fallback: on
+    Linux it is shared between users, so predictable log paths there invite symlink attacks.
   - A panic hook appends a crash report (message and backtrace) to `polypad-crash.log`
     **synchronously** before anything else. Panics raised inside the windowing system's callbacks
     (for example, window creation failing because WebView2 is missing) abort the process, which

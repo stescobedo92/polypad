@@ -7,7 +7,7 @@ pub mod commands;
 pub mod error;
 pub mod ipc;
 
-use std::{path::Path, process::ExitCode};
+use std::{path::PathBuf, process::ExitCode};
 
 use polypad_core::telemetry::{self, TelemetryConfig, TelemetryGuard};
 use tauri::Manager;
@@ -34,9 +34,7 @@ fn try_run() -> Result<ExitCode, tauri::Error> {
     ipc.mount_events(&app);
 
     // Set up here rather than in `Builder::setup`, whose failures panic inside the event loop.
-    let log_dir = app.path().app_log_dir()?;
-    let telemetry = start_telemetry(&log_dir);
-    telemetry::install_panic_hook(log_dir);
+    let telemetry = start_telemetry(app.path().app_log_dir());
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
         os = std::env::consts::OS,
@@ -53,14 +51,28 @@ fn try_run() -> Result<ExitCode, tauri::Error> {
     Ok(u8::try_from(exit_code).map_or(ExitCode::FAILURE, ExitCode::from))
 }
 
-/// Starts file logging, falling back to stderr: a logging problem must never block start-up.
-fn start_telemetry(log_dir: &Path) -> Option<TelemetryGuard> {
-    match telemetry::init(&TelemetryConfig::new(log_dir)) {
+/// Starts file logging and crash reports in `log_dir`, falling back to stderr: a logging
+/// problem must never block start-up.
+///
+/// Without a log directory there is nowhere to write a crash report, so the panic hook is left
+/// alone: the default one already reports panics on stderr, the channel logging falls back to.
+fn start_telemetry(log_dir: tauri::Result<PathBuf>) -> Option<TelemetryGuard> {
+    let log_dir = match log_dir {
+        Ok(log_dir) => log_dir,
+        Err(error) => {
+            init_stderr_fallback();
+            tracing::error!(
+                error = %DisplayChain(&error),
+                "the log directory cannot be resolved; logging to stderr only"
+            );
+            return None;
+        }
+    };
+
+    let guard = match telemetry::init(&TelemetryConfig::new(&log_dir)) {
         Ok(guard) => Some(guard),
         Err(error) => {
-            // The fallback can only fail if a subscriber is already installed, in which case
-            // that subscriber receives the error record below.
-            let _ = telemetry::init_stderr_only();
+            init_stderr_fallback();
             tracing::error!(
                 error = %DisplayChain(&error),
                 log_dir = %log_dir.display(),
@@ -68,7 +80,17 @@ fn start_telemetry(log_dir: &Path) -> Option<TelemetryGuard> {
             );
             None
         }
-    }
+    };
+    // Installed even when file logging failed: the crash report is a separate file that may
+    // still be writable.
+    telemetry::install_panic_hook(log_dir);
+    guard
+}
+
+fn init_stderr_fallback() {
+    // Can only fail if a subscriber is already installed, in which case that subscriber
+    // receives the error record that follows.
+    let _ = telemetry::init_stderr_only();
 }
 
 /// Reports a failure to create the Tauri runtime, which happens before logging exists.
@@ -78,4 +100,15 @@ fn start_telemetry(log_dir: &Path) -> Option<TelemetryGuard> {
 #[allow(clippy::print_stderr)] // no logger is available yet; stderr is the only channel left
 fn report_startup_failure(error: &tauri::Error) {
     eprintln!("PolyPad failed to start: {}", DisplayChain(error));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::start_telemetry;
+
+    #[test]
+    fn an_unresolvable_log_directory_does_not_stop_start_up() {
+        // What `app_log_dir` returns when the platform has no home or data directory.
+        assert!(start_telemetry(Err(tauri::Error::UnknownPath)).is_none());
+    }
 }
