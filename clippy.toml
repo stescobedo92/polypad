@@ -1,0 +1,12 @@
+# Production-path restrictions from [workspace.lints.clippy] are relaxed inside tests only.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-dbg-in-tests = true
+allow-print-in-tests = true
+
+# Proper nouns that `clippy::doc_markdown` must not ask to wrap in backticks.
+doc-valid-idents = [
+  "PolyPad", "LINQPad", "JShell", "NuGet", "PyPI",
+  "SQLite", "PostgreSQL", "MySQL", "WebView", "..",
+]

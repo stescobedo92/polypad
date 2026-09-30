@@ -1,0 +1,15 @@
+[package]
+name = "polypad-secrets"
+description = "Secret handling for PolyPad: redaction today, OS keychain storage later."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
