@@ -7,7 +7,25 @@
 use std::path::PathBuf;
 
 /// Commands registered in `src/ipc.rs`; keep both lists in sync.
-const APP_COMMANDS: &[&str] = &["app_info"];
+const APP_COMMANDS: &[&str] = &[
+    "app_info",
+    "workspace_snapshot",
+    "journal_buffer",
+    "discard_buffer",
+    "set_session",
+    "ready_to_close",
+    "list_scripts",
+    "open_script",
+    "script_status",
+    "save_script",
+    "create_script",
+    "create_folder",
+    "rename_entry",
+    "move_entry",
+    "delete_entry",
+    "choose_scripts_folder",
+    "update_preferences",
+];
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let attributes = tauri_build::Attributes::new()

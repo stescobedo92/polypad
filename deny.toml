@@ -29,12 +29,16 @@ confidence-threshold = 0.93
 # license fails CI until someone reviews it and adds it here with the pull request.
 # MPL-2.0 is file-level copyleft (parts of Tauri's HTML tooling): compatible with distributing
 # PolyPad under MIT as long as those files are not modified.
+# ISC (inotify, inotify-sys) is MIT-equivalent; CC0-1.0 (notify) is a public-domain dedication.
+# Both came with the file watcher in Phase 1 and impose nothing beyond MIT.
 allow = [
   "MIT",
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",
   "BSD-2-Clause",
   "BSD-3-Clause",
+  "CC0-1.0",
+  "ISC",
   "Zlib",
   "Unicode-3.0",
   "MPL-2.0",

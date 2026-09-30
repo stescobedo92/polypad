@@ -3,16 +3,24 @@
 //! Commands are thin adapters that translate between IPC types and domain services; business
 //! logic lives in the library crates so it can be tested without a WebView.
 
+pub mod closing;
 pub mod commands;
 pub mod error;
+pub mod events;
 pub mod ipc;
+pub mod workspace;
 
 use std::{path::PathBuf, process::ExitCode};
 
 use polypad_core::telemetry::{self, TelemetryConfig, TelemetryGuard};
-use tauri::Manager;
+use tauri::{App, Manager, WindowEvent};
+use tauri_plugin_window_state::StateFlags;
 
-use crate::error::DisplayChain;
+use crate::{
+    closing::{CloseGuard, MAIN_WINDOW},
+    error::DisplayChain,
+    workspace::{Workspace, WorkspaceDirs},
+};
 
 /// Starts PolyPad and blocks until the last window closes.
 #[must_use]
@@ -29,7 +37,20 @@ pub fn run() -> ExitCode {
 fn try_run() -> Result<ExitCode, tauri::Error> {
     let ipc = ipc::builder();
     let app = tauri::Builder::default()
+        // Both plugins are used from Rust only; no capability grants them to the WebView.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                // Not VISIBLE: the window starts hidden and is shown once restored (below).
+                .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
+                .build(),
+        )
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(ipc.invoke_handler())
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                closing::on_close_requested(window, api);
+            }
+        })
         .build(tauri::generate_context!())?;
     ipc.mount_events(&app);
 
@@ -41,6 +62,8 @@ fn try_run() -> Result<ExitCode, tauri::Error> {
         arch = std::env::consts::ARCH,
         "PolyPad started"
     );
+    // The event loop has not started yet, so no command can run before the state exists.
+    start_workspace(&app);
 
     // `run_return` (unlike `run`) hands control back instead of calling `process::exit`, so
     // dropping the telemetry guard below flushes the last buffered log records.
@@ -49,6 +72,26 @@ fn try_run() -> Result<ExitCode, tauri::Error> {
     drop(telemetry);
 
     Ok(u8::try_from(exit_code).map_or(ExitCode::FAILURE, ExitCode::from))
+}
+
+/// Opens the workspace, starts watching the scripts folder and shows the restored window.
+fn start_workspace(app: &App) {
+    let paths = app.path();
+    let dirs = WorkspaceDirs {
+        config: paths.app_config_dir().ok(),
+        local_data: paths.app_local_data_dir().ok(),
+        documents: paths.document_dir().ok(),
+        home: paths.home_dir().ok(),
+    };
+    app.manage(CloseGuard::default());
+    app.manage(Workspace::load(&dirs));
+    workspace::watch_scripts(app.handle());
+
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW)
+        && let Err(error) = window.show()
+    {
+        tracing::error!(%error, "cannot show the main window");
+    }
 }
 
 /// Starts file logging and crash reports in `log_dir`, falling back to stderr: a logging
