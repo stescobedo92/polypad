@@ -33,6 +33,7 @@ tracing-appender = "0.2.5"
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 
 # Test-only
+proptest = "1.11.0"
 tempfile = "3.27.0"
 
 [workspace.lints.rust]

@@ -9,13 +9,21 @@ repository.workspace = true
 authors.workspace = true
 publish.workspace = true
 
+[features]
+# Derives `specta::Type` on the types that cross the Tauri IPC boundary (enabled by src-tauri).
+specta = ["dep:specta"]
+
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true
+specta = { workspace = true, optional = true, features = ["serde_json"] }
 thiserror.workspace = true
 tracing.workspace = true
 tracing-appender.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+proptest.workspace = true
 tempfile.workspace = true
 
 [lints]
