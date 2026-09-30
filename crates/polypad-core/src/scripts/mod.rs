@@ -2,3 +2,5 @@
 //! watcher that reports changes made by other programs.
 
 pub mod path;
+pub mod store;
+pub mod tree;

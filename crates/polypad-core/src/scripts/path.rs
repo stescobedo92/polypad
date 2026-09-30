@@ -124,6 +124,15 @@ impl ScriptPath {
             .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
     }
 
+    /// The path this entry gets when moved into `folder` (the root when `None`).
+    #[must_use]
+    pub fn moved_to(&self, folder: Option<&Self>) -> Self {
+        match folder {
+            Some(folder) => Self(format!("{}/{}", folder.0, self.name())),
+            None => Self(self.name().to_owned()),
+        }
+    }
+
     /// Whether this names a script (a `.ppad` file, compared case-insensitively).
     #[must_use]
     pub fn is_script(&self) -> bool {
@@ -288,6 +297,17 @@ mod tests {
         assert_eq!(
             ScriptPath::child(Some(&path("reports")), &name),
             path("reports/orders.ppad")
+        );
+    }
+
+    #[test]
+    fn moving_keeps_the_name_under_the_new_folder() {
+        let script = path("reports/2026/orders.ppad");
+
+        assert_eq!(script.moved_to(None), path("orders.ppad"));
+        assert_eq!(
+            script.moved_to(Some(&path("archive"))),
+            path("archive/orders.ppad")
         );
     }
 
