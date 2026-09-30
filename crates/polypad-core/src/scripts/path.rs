@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 /// File extension of scripts, without the dot.
 pub const SCRIPT_EXTENSION: &str = "ppad";
 
-/// Longest component, in bytes.
-pub const MAX_NAME_BYTES: usize = 255;
+/// Longest component, in bytes: file systems allow 255, and atomic writes put the name between
+/// a `.` and a `.XXXXXX` suffix in their temporary file.
+pub const MAX_NAME_BYTES: usize = 247;
 
 /// One validated path component: the name of a script or folder.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -171,7 +172,11 @@ fn validate_name(name: &str) -> Result<(), NameError> {
     {
         return Err(NameError::InvalidCharacter(invalid));
     }
-    let stem = name.split_once('.').map_or(name, |(stem, _)| stem);
+    // Windows ignores trailing spaces here too: `CON .txt` is the console device.
+    let stem = name
+        .split_once('.')
+        .map_or(name, |(stem, _)| stem)
+        .trim_end_matches(' ');
     if RESERVED_NAMES
         .iter()
         .any(|reserved| stem.eq_ignore_ascii_case(reserved))
@@ -223,7 +228,7 @@ mod tests {
             " leading space is legal",
             "CONSOLE.ppad",
             "com10",
-            &"x".repeat(255),
+            &"x".repeat(247),
         ] {
             assert_eq!(EntryName::new(name).unwrap().as_str(), name);
         }
@@ -251,15 +256,18 @@ mod tests {
             ("Com1.txt", NameError::ReservedName),
             ("lpt9", NameError::ReservedName),
             ("aux.tar.gz", NameError::ReservedName),
+            ("CON .ppad", NameError::ReservedName),
+            ("nul  ", NameError::ReservedName),
             ("name.", NameError::TrailingDotOrSpace),
             ("name ", NameError::TrailingDotOrSpace),
         ];
         for (name, expected) in cases {
             assert_eq!(EntryName::new(name), Err(expected), "{name:?}");
         }
-        assert_eq!(EntryName::new(&"x".repeat(256)), Err(NameError::TooLong));
-        // 128 two-byte characters: 256 bytes although only 128 characters.
-        assert_eq!(EntryName::new(&"é".repeat(128)), Err(NameError::TooLong));
+        // Atomic writes add `.` + `.XXXXXX` around the name, and 255 bytes is the file system limit.
+        assert_eq!(EntryName::new(&"x".repeat(248)), Err(NameError::TooLong));
+        // 124 two-byte characters: 248 bytes although only 124 characters.
+        assert_eq!(EntryName::new(&"é".repeat(124)), Err(NameError::TooLong));
     }
 
     #[test]

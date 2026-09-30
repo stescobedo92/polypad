@@ -141,8 +141,13 @@ pub enum ScriptError {
 /// Scripts and folders under one root folder.
 #[derive(Debug)]
 pub struct ScriptStore {
-    /// Canonical root.
+    /// Canonical root in its plain form (no `\\?\` prefix where avoidable): joined to script
+    /// paths, shown, and handed to the trash.
     root: PathBuf,
+    /// Canonical root as `std::fs::canonicalize` returns it (always `\\?\` on Windows), the
+    /// form containment is checked in: `dunce` keeps that prefix for some paths (longer than
+    /// 260 characters, reserved-looking names), so comparing mixed forms would fail.
+    root_real: PathBuf,
     trash: Box<dyn Trash>,
 }
 
@@ -154,9 +159,15 @@ impl ScriptStore {
     /// [`ScriptError::Root`] when the folder cannot be created or resolved.
     pub fn open(root: &Path, trash: Box<dyn Trash>) -> Result<Self, ScriptError> {
         fs::create_dir_all(root).map_err(ScriptError::Root)?;
-        // dunce avoids the verbatim `\\?\` form on Windows, which the trash's shell APIs reject.
-        let root = dunce::canonicalize(root).map_err(ScriptError::Root)?;
-        Ok(Self { root, trash })
+        let root_real = fs::canonicalize(root).map_err(ScriptError::Root)?;
+        // Drops the verbatim `\\?\` form where Windows allows, since the trash's shell APIs
+        // reject it.
+        let root = dunce::simplified(&root_real).to_owned();
+        Ok(Self {
+            root,
+            root_real,
+            trash,
+        })
     }
 
     /// Canonical location of the scripts folder.
@@ -392,8 +403,8 @@ impl ScriptStore {
     /// Location of an existing entry whose real location is inside the root.
     fn existing(&self, path: &ScriptPath) -> Result<PathBuf, ScriptError> {
         let full = self.resolve(path);
-        match dunce::canonicalize(&full) {
-            Ok(real) if real.starts_with(&self.root) => Ok(full),
+        match fs::canonicalize(&full) {
+            Ok(real) if real.starts_with(&self.root_real) => Ok(full),
             Ok(_) => Err(ScriptError::OutsideRoot(path.clone())),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 Err(ScriptError::NotFound(path.clone()))
@@ -747,6 +758,43 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn scripts_behind_long_paths_stay_inside_the_root() {
+        let f = fixture();
+        // Well past Windows' classic 260-character limit, every component still valid.
+        let folder = "f".repeat(200);
+        fs::create_dir(f.root.join(&folder)).unwrap();
+        let long_name = format!("{}.ppad", "s".repeat(80));
+
+        let (created, stamp) = f
+            .store
+            .create_script(
+                Some(&path(&folder)),
+                &name(&long_name),
+                &document(
+                    "x
+",
+                ),
+            )
+            .unwrap();
+
+        assert_eq!(f.store.read(&created).unwrap().stamp, stamp);
+        assert_eq!(f.store.stamp(&created).unwrap(), Some(stamp.clone()));
+        f.store
+            .save(
+                &created,
+                &document(
+                    "y
+",
+                ),
+                Some(&stamp),
+            )
+            .unwrap();
+        let renamed = f.store.rename(&created, &name("short.ppad")).unwrap();
+        f.store.delete(&renamed).unwrap();
+        assert!(!f.root.join(&folder).join("short.ppad").exists());
     }
 
     #[test]
