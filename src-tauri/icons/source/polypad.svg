@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- PolyPad mark: a pad holding lines written in different languages, with a caret. -->
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="#1d2129"/>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="none" stroke="#2b313c" stroke-width="16"/>
+  <rect x="224" y="292" width="432" height="96" rx="48" fill="#a48af7"/>
+  <rect x="320" y="464" width="480" height="96" rx="48" fill="#3cc2e3"/>
+  <rect x="224" y="636" width="304" height="96" rx="48" fill="#e57d94"/>
+  <rect x="568" y="612" width="44" height="144" rx="12" fill="#dde2ea"/>
+</svg>
