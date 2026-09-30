@@ -25,11 +25,11 @@
       "csp": {
         "default-src": "'self'",
         "script-src": "'self'",
-        "style-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: blob:",
         "font-src": "'self'",
         "connect-src": "ipc: http://ipc.localhost",
-        "worker-src": "'self' blob:",
+        "worker-src": "'self'",
         "object-src": "'none'",
         "base-uri": "'none'",
         "form-action": "'none'",
@@ -42,12 +42,13 @@
         "img-src": "'self' data: blob:",
         "font-src": "'self'",
         "connect-src": "'self' ipc: http://ipc.localhost ws://localhost:5173",
-        "worker-src": "'self' blob:",
+        "worker-src": "'self'",
         "object-src": "'none'",
         "base-uri": "'none'",
         "form-action": "'none'",
         "frame-src": "'none'"
       },
+      "dangerousDisableAssetCspModification": ["style-src"],
       "freezePrototype": true,
       "capabilities": ["main-window"]
     }
