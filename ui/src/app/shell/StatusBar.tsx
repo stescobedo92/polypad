@@ -1,17 +1,27 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { CursorPosition } from "../../features/editor/editorModule";
+import type { Newline } from "../../shared/ipc";
 import { useAppInfo } from "../../shared/ipc/useAppInfo";
 import type { ExecutionMode, Language } from "../../shared/languages";
 import { LanguageSwatch } from "../../shared/ui/LanguageSwatch";
 
-interface StatusBarProps {
+/** What the status bar says about the script of the active tab. */
+export interface ScriptStatus {
   readonly language: Language;
   readonly mode: ExecutionMode;
+  readonly cursor: CursorPosition;
+  readonly newline: Newline;
+}
+
+interface StatusBarProps {
+  /** `null` when no script is open. */
+  readonly script: ScriptStatus | null;
 }
 
 /** Kernel state, script context and build information along the bottom edge. */
-export function StatusBar({ language, mode }: StatusBarProps) {
+export function StatusBar({ script }: StatusBarProps) {
   const { t } = useTranslation();
   const appInfo = useAppInfo();
 
@@ -24,15 +34,26 @@ export function StatusBar({ language, mode }: StatusBarProps) {
         <span aria-hidden className="size-1.5 rounded-full bg-faint" />
         {t("status.kernelIdle")}
       </Segment>
-      <Segment>
-        <LanguageSwatch language={language.id} />
-        {language.label}
-      </Segment>
-      <Segment>{t(`modes.${mode}`)}</Segment>
+      {script !== null && (
+        <>
+          <Segment>
+            <LanguageSwatch language={script.language.id} />
+            {script.language.label}
+          </Segment>
+          <Segment>{t(`modes.${script.mode}`)}</Segment>
+        </>
+      )}
       <Segment>{t("status.noConnection")}</Segment>
 
       <div className="ml-auto flex items-stretch">
-        <Segment trailing>{t("status.position", { line: 1, column: 1 })}</Segment>
+        {script !== null && (
+          <>
+            <Segment trailing>
+              {t("status.position", { line: script.cursor.line, column: script.cursor.column })}
+            </Segment>
+            <Segment trailing>{t(`status.lineEnding.${script.newline}`)}</Segment>
+          </>
+        )}
         <Segment trailing>{t("status.encoding")}</Segment>
         <Segment trailing>
           {appInfo.status === "ready" && t("status.version", { version: appInfo.info.version })}
