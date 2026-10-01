@@ -120,6 +120,8 @@ export interface Workspace {
   /** Switches the language, keeping the mode when the new language offers it. */
   setLanguage(id: BufferId, language: LanguageId): void;
   setMode(id: BufferId, mode: ExecutionMode): void;
+  /** Updates the tabs of `from` (a script, or every script in a folder) now at `to`. */
+  moveTabs(from: ScriptPath, to: ScriptPath): void;
   /**
    * Applies changes other programs made: tabs follow renamed files, tabs without unsaved changes
    * reload, tabs with unsaved changes are put in conflict, and deleted files are marked missing.
@@ -139,6 +141,12 @@ export interface Workspace {
 }
 
 export type SaveOutcome = "saved" | "conflict" | "needs-name";
+
+/** Where `path` ends up when `from` (a script or a folder) moves to `to`; `null` if unaffected. */
+export function movedPath(path: ScriptPath, from: ScriptPath, to: ScriptPath): ScriptPath | null {
+  if (path === from) return to;
+  return path.startsWith(`${from}/`) ? `${to}${path.slice(from.length)}` : null;
+}
 
 /** File name for a script called `name`: adds `.ppad` unless it is already there. */
 export function scriptFileName(name: string): string {
@@ -408,6 +416,25 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
     };
   }
 
+  /** Moves the affected tabs; returns their new paths. */
+  function moveTabs(from: ScriptPath, to: ScriptPath): ScriptPath[] {
+    const moved: ScriptPath[] = [];
+    for (const tab of store.getState().tabs) {
+      const target = tab.path === null ? null : movedPath(tab.path, from, to);
+      if (target === null) continue;
+      // Another tab already shows the target: leave this one to the disk check.
+      if (store.getState().tabs.some((other) => other.path === target)) continue;
+      updateTab(tab.id, (latest) => ({ ...latest, path: target }));
+      // Re-journals unsaved work under its new path.
+      refreshModified(tab.id);
+      moved.push(target);
+    }
+    if (moved.length > 0) {
+      persistSession();
+    }
+    return moved;
+  }
+
   function addTab(tab: Tab): void {
     store.setState((state) => ({ tabs: [...state.tabs, tab], activeId: tab.id }));
     persistSession();
@@ -558,24 +585,16 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
 
     reloadFromDisk: reload,
 
+    moveTabs(from, to) {
+      moveTabs(from, to);
+    },
+
     async reconcile(changes) {
-      let renamed = false;
-      for (const { from, to } of changes.renamed) {
-        const { tabs } = store.getState();
-        const moving = tabs.find((tab) => tab.path === from);
-        if (moving !== undefined && !tabs.some((tab) => tab.path === to)) {
-          updateTab(moving.id, (tab) => ({ ...tab, path: to }));
-          // Re-journals unsaved work under its new path.
-          refreshModified(moving.id);
-          renamed = true;
-        }
-      }
-      if (renamed) {
-        persistSession();
-      }
+      const moved = changes.renamed.flatMap(({ from, to }) => moveTabs(from, to));
       const mentioned = new Set<ScriptPath>([
         ...changes.paths,
         ...changes.renamed.map((pair) => pair.to),
+        ...moved,
       ]);
       const affected = store
         .getState()

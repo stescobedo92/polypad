@@ -650,3 +650,42 @@ describe("restoring the previous session", () => {
     expect(backend.journal.has("r1")).toBe(false);
   });
 });
+
+describe("moving scripts and folders", () => {
+  it("moves the tabs of a renamed script or of every script in a moved folder", async () => {
+    const { backend, workspace, state } = setup();
+    backend.write("reports/a.ppad", "a");
+    backend.write("reports/2026/b.ppad", "b");
+    backend.write("reports-old/c.ppad", "c");
+    await workspace.openScript("reports/a.ppad");
+    await workspace.openScript("reports/2026/b.ppad");
+    await workspace.openScript("reports-old/c.ppad");
+
+    workspace.moveTabs("reports", "archive/reports");
+    await workspace.settled();
+
+    expect(state().tabs.map((t) => t.path)).toEqual([
+      "archive/reports/a.ppad",
+      "archive/reports/2026/b.ppad",
+      "reports-old/c.ppad",
+    ]);
+    expect(backend.session?.tabs.map((t) => t.path)).toEqual([
+      "archive/reports/a.ppad",
+      "archive/reports/2026/b.ppad",
+      "reports-old/c.ppad",
+    ]);
+  });
+
+  it("follows folders renamed elsewhere", async () => {
+    const { backend, workspace, tab } = setup();
+    backend.write("old/a.ppad", "a");
+    await workspace.openScript("old/a.ppad");
+    const file = backend.files.get("old/a.ppad");
+    backend.remove("old/a.ppad");
+    if (file !== undefined) backend.files.set("new/a.ppad", file);
+
+    await workspace.reconcile({ paths: [], renamed: [{ from: "old", to: "new" }], rescan: false });
+
+    expect(tab("b1")).toEqual(expect.objectContaining({ path: "new/a.ppad", disk: "same" }));
+  });
+});
