@@ -73,7 +73,8 @@ export function installKeybindings(
         // The WebView would otherwise act on it too (Ctrl+S saves the page, Ctrl+W closes it).
         event.preventDefault();
         event.stopPropagation();
-        commands[id]();
+        // A held-down chord runs its command once, not once per auto-repeat.
+        if (!event.repeat) commands[id]();
         return;
       }
     }

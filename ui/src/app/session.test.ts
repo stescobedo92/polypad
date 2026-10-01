@@ -137,6 +137,37 @@ describe("a running session", () => {
     expect(backend.journal.get(untitled.id)?.document.code).toBe("typed just before closing");
   });
 
+  it("writes pending preferences and the session record before the window closes", async () => {
+    const { backend, session } = await start();
+    const order: string[] = [];
+    let finishSession: () => void = () => undefined;
+    backend.setSession = () =>
+      new Promise<void>((resolve) => {
+        finishSession = () => {
+          order.push("session");
+          resolve();
+        };
+      });
+    const ready = backend.readyToClose.bind(backend);
+    backend.readyToClose = () => {
+      order.push("closed");
+      return ready();
+    };
+
+    session.updatePreferences((p) => ({ ...p, lastLanguage: "go" }));
+    session.workspace.newScript("go");
+    backend.requestFlush();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(order).toEqual([]);
+    finishSession();
+
+    await vi.waitFor(() => {
+      expect(backend.closed).toBe(true);
+    });
+    expect(order).toEqual(["session", "closed"]);
+    expect(backend.preferences.lastLanguage).toBe("go");
+  });
+
   it("saves preferences shortly after they change, once", async () => {
     vi.useFakeTimers();
     const { backend, session } = await start();

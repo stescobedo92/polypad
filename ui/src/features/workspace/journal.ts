@@ -31,6 +31,8 @@ interface Pending {
 export class JournalWriter {
   private readonly pending = new Map<BufferId, Pending>();
   private readonly chains = new Map<BufferId, Promise<void>>();
+  /** Snapshots whose write failed and was not followed by a newer one, tried again on flush. */
+  private readonly failed = new Map<BufferId, Pending["snapshot"]>();
 
   private readonly deps: JournalDeps;
 
@@ -45,6 +47,7 @@ export class JournalWriter {
     if (current !== undefined) {
       clearTimeout(current.timer);
     }
+    this.failed.delete(id);
     const firstAt = current?.firstAt ?? now;
     const delay = Math.max(0, Math.min(JOURNAL_DEBOUNCE_MS, JOURNAL_MAX_WAIT_MS - (now - firstAt)));
     const timer = setTimeout(() => {
@@ -60,14 +63,23 @@ export class JournalWriter {
       clearTimeout(current.timer);
       this.pending.delete(id);
     }
+    this.failed.delete(id);
     this.enqueue(id, () => this.deps.discard(id));
   }
 
-  /** Writes every pending snapshot now and waits for all operations to finish. */
+  /**
+   * Writes every pending snapshot now, tries failed writes once more (a Windows lock may have
+   * gone) and waits for all operations to finish.
+   */
   async flush(): Promise<void> {
     for (const [id, current] of [...this.pending]) {
       clearTimeout(current.timer);
       this.fire(id);
+    }
+    await Promise.all(this.chains.values());
+    for (const [id, snapshot] of [...this.failed]) {
+      this.failed.delete(id);
+      this.write(id, snapshot, false);
     }
     await Promise.all(this.chains.values());
   }
@@ -81,9 +93,24 @@ export class JournalWriter {
     const current = this.pending.get(id);
     if (current === undefined) return;
     this.pending.delete(id);
-    this.enqueue(id, () => {
-      const snapshot = current.snapshot();
-      return snapshot === null ? this.deps.discard(id) : this.deps.write(id, snapshot);
+    this.write(id, current.snapshot, true);
+  }
+
+  /** Writes what `snapshot` gives when its turn comes; `remember` keeps it for a retry. */
+  private write(id: BufferId, snapshot: Pending["snapshot"], remember: boolean): void {
+    this.enqueue(id, async () => {
+      const taken = snapshot();
+      if (taken === null) {
+        await this.deps.discard(id);
+        return;
+      }
+      try {
+        await this.deps.write(id, taken);
+      } catch (error) {
+        // Unless a newer snapshot is already on its way.
+        if (remember && !this.pending.has(id)) this.failed.set(id, snapshot);
+        throw error;
+      }
     });
   }
 

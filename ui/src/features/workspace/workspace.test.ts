@@ -126,6 +126,19 @@ describe("closing tabs", () => {
   });
 });
 
+describe("the session record", () => {
+  it("reports a session that cannot be recorded like a journal failure", async () => {
+    const { backend, workspace, state } = setup();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    backend.setSession = () => Promise.reject(new CommandFailure({ code: "recoveryUnavailable" }));
+
+    workspace.newScript("csharp");
+    await workspace.settled();
+
+    expect(state().journalFailed).toBe(true);
+  });
+});
+
 describe("the session", () => {
   it("records the open tabs in order and the active one", async () => {
     const { backend, workspace } = setup();
@@ -246,6 +259,36 @@ describe("saving", () => {
       }),
     );
     expect(buffers.language("b1")).toBe("python");
+  });
+});
+
+describe("saving at the wrong moment", () => {
+  it("runs saves of one tab one after another, each from the stamp the last one left", async () => {
+    const { backend, buffers, workspace, tab } = setup();
+    backend.write("a.ppad", "old");
+    await workspace.openScript("a.ppad");
+    buffers.edit("b1", "new");
+
+    // Ctrl+S held down, or pressed twice while a slow disk is still writing.
+    const outcomes = await Promise.all([workspace.save("b1"), workspace.save("b1")]);
+
+    expect(outcomes).toEqual(["saved", "saved"]);
+    expect(tab("b1")).toEqual(expect.objectContaining({ disk: "same", modified: false }));
+    expect(backend.code("a.ppad")).toBe("new");
+  });
+
+  it("is not an error when the tab was closed while its save was on its way", async () => {
+    const { backend, buffers, workspace, state } = setup();
+    backend.write("a.ppad", "old");
+    await workspace.openScript("a.ppad");
+    buffers.edit("b1", "new");
+
+    const saving = workspace.save("b1");
+    await workspace.discardAndClose("b1");
+
+    await expect(saving).resolves.toBe("saved");
+    expect(state().tabs).toEqual([]);
+    expect(backend.code("a.ppad")).toBe("new");
   });
 });
 
@@ -439,6 +482,46 @@ describe("changes made by other programs", () => {
     await workspace.reconcile({ paths: ["a.ppad"], renamed: [], rescan: false });
 
     expect(tab("b1")).toEqual(expect.objectContaining({ disk: "same", modified: false }));
+  });
+
+  it("never replace text typed while the changed file was being read", async () => {
+    const { backend, buffers, workspace, tab } = setup();
+    backend.write("a.ppad", "old");
+    await workspace.openScript("a.ppad");
+    const theirs = backend.write("a.ppad", "theirs");
+    const read = backend.openScript.bind(backend);
+    backend.openScript = async (path) => {
+      const loaded = await read(path);
+      buffers.edit("b1", "old, then typed");
+      return loaded;
+    };
+
+    await workspace.reconcile({ paths: ["a.ppad"], renamed: [], rescan: false });
+
+    expect(buffers.text("b1")).toBe("old, then typed");
+    expect(tab("b1")).toEqual(
+      expect.objectContaining({ modified: true, disk: "changed", diskStamp: theirs }),
+    );
+  });
+
+  it("do not take the tab's own save for another program's change", async () => {
+    const { backend, buffers, workspace, tab } = setup();
+    backend.write("a.ppad", "v1");
+    await workspace.openScript("a.ppad");
+    buffers.edit("b1", "v2");
+    const status = backend.scriptStatus.bind(backend);
+    backend.scriptStatus = async (path) => {
+      // The status is read, then the tab is saved and edited before it arrives.
+      const before = await status(path);
+      await workspace.save("b1");
+      buffers.edit("b1", "v3");
+      return before;
+    };
+
+    await workspace.reconcile({ paths: ["a.ppad"], renamed: [], rescan: false });
+
+    expect(tab("b1")).toEqual(expect.objectContaining({ disk: "same", modified: true }));
+    expect(buffers.text("b1")).toBe("v3");
   });
 
   it("clear a conflict once the file is back to the tab's version", async () => {

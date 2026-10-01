@@ -191,6 +191,8 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
   const journaled = new Set<BufferId>();
   let untitledCount = 0;
   let pending: Promise<unknown> = Promise.resolve();
+  /** The save of each tab in progress; the next one waits for it. */
+  const saves = new Map<BufferId, Promise<SaveOutcome>>();
 
   const find = (id: BufferId) => store.getState().tabs.find((tab) => tab.id === id);
 
@@ -242,7 +244,9 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
           active: activeId,
         })
         .catch((error: unknown) => {
+          // Without the session record, unsaved work would not be reopened after a crash.
           console.warn("cannot record the session", error);
+          store.setState({ journalFailed: true });
         });
     });
     track(sessionWrites);
@@ -284,10 +288,21 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
     refreshModified(id);
   }
 
-  async function reload(id: BufferId): Promise<void> {
+  /**
+   * Replaces a tab with its file. In the background (`keepEdits`), edits made while the file was
+   * being read win: the tab is put in conflict instead of losing them.
+   */
+  async function reload(id: BufferId, keepEdits: boolean): Promise<void> {
+    const path = find(id)?.path;
+    if (path == null) return;
+    const loaded = await ipc.openScript(path);
     const tab = find(id);
-    if (tab?.path == null) return;
-    const loaded = await ipc.openScript(tab.path);
+    // Closed or moved while the file was on its way.
+    if (tab?.path !== path) return;
+    if (keepEdits && tab.modified) {
+      updateTab(id, (latest) => ({ ...latest, disk: "changed", diskStamp: loaded.stamp }));
+      return;
+    }
     const { header, code, newline } = loaded.document;
     buffers.replace(id, code);
     buffers.setLanguage(id, header.language);
@@ -306,7 +321,8 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
 
   /** Compares a tab with its file and reacts as {@link Workspace.reconcile} describes. */
   async function checkDisk(id: BufferId): Promise<void> {
-    const path = find(id)?.path;
+    const before = find(id);
+    const path = before?.path;
     if (path == null) return;
     let status: ContentStamp | null;
     try {
@@ -315,9 +331,10 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
       console.warn("cannot check a script on disk", error);
       return;
     }
-    // The tab may have been saved, renamed or closed while the status was on its way.
+    // Saved, renamed or closed while the status was on its way: the status says nothing about
+    // the tab any more (a save's own result is what counts).
     const tab = find(id);
-    if (tab?.path !== path) return;
+    if (tab?.path !== path || tab.baseStamp !== before?.baseStamp) return;
     if (status === tab.baseStamp) {
       if (tab.disk !== "same") {
         updateTab(id, (latest) => ({ ...latest, disk: "same", diskStamp: null }));
@@ -327,7 +344,31 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
     } else if (tab.modified) {
       updateTab(id, (latest) => ({ ...latest, disk: "changed", diskStamp: status }));
     } else {
-      await reload(id);
+      await reload(id, true);
+    }
+  }
+
+  async function saveNow(id: BufferId): Promise<SaveOutcome> {
+    const tab = find(id);
+    if (tab === undefined) return "saved";
+    if (tab.path === null) return "needs-name";
+    const document = documentOf(tab);
+    try {
+      const stamp = await ipc.saveScript(tab.path, document, tab.baseStamp);
+      // Closed while the save was on its way: the file is written and there is no tab to update.
+      if (find(id) !== undefined) markSaved(id, document, stamp);
+      return "saved";
+    } catch (error) {
+      if (error instanceof CommandFailure && error.error.code === "conflict") {
+        const current = error.error.current;
+        updateTab(id, (latest) => ({
+          ...latest,
+          disk: current === null ? "missing" : "changed",
+          diskStamp: current,
+        }));
+        return "conflict";
+      }
+      throw error;
     }
   }
 
@@ -537,25 +578,22 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
     },
 
     async save(id) {
-      const tab = find(id);
-      if (tab === undefined) return "saved";
-      if (tab.path === null) return "needs-name";
-      const document = documentOf(tab);
+      // One save of a tab at a time, each from the stamp the previous one left: two saves in a
+      // row (a held-down Ctrl+S, a slow disk) must not make the tab conflict with itself.
+      // The first one starts at once, so it saves the text of the moment it was asked for.
+      const previous = saves.get(id);
+      const run =
+        previous === undefined
+          ? saveNow(id)
+          : previous.then(
+              () => saveNow(id),
+              () => saveNow(id),
+            );
+      saves.set(id, run);
       try {
-        const stamp = await ipc.saveScript(tab.path, document, tab.baseStamp);
-        markSaved(id, document, stamp);
-        return "saved";
-      } catch (error) {
-        if (error instanceof CommandFailure && error.error.code === "conflict") {
-          const current = error.error.current;
-          updateTab(id, (latest) => ({
-            ...latest,
-            disk: current === null ? "missing" : "changed",
-            diskStamp: current,
-          }));
-          return "conflict";
-        }
-        throw error;
+        return await run;
+      } finally {
+        if (saves.get(id) === run) saves.delete(id);
       }
     },
 
@@ -583,7 +621,7 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
       );
     },
 
-    reloadFromDisk: reload,
+    reloadFromDisk: (id) => reload(id, false),
 
     moveTabs(from, to) {
       moveTabs(from, to);

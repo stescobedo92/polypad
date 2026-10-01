@@ -84,6 +84,17 @@ describe("installed key bindings", () => {
     expect(run["script.new"]).toHaveBeenCalledOnce();
   });
 
+  it("run a command once while its keys are held down", () => {
+    const run = commands();
+    uninstall.push(installKeybindings(window, run, () => ({})));
+
+    press({ key: "s", ctrlKey: true });
+    const repeated = press({ key: "s", ctrlKey: true, repeat: true });
+
+    expect(run["script.save"]).toHaveBeenCalledOnce();
+    expect(repeated.defaultPrevented).toBe(true);
+  });
+
   it("ignore keys pressed while composing text", () => {
     const run = commands();
     uninstall.push(installKeybindings(window, run, () => ({})));

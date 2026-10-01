@@ -39,6 +39,59 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe("JournalWriter after a failure", () => {
+  it("tries a failed write again when flushed", async () => {
+    const written: string[] = [];
+    let failures = 1;
+    const onFailure = vi.fn();
+    const writer = new JournalWriter({
+      write: (_id, snap) => {
+        if (failures > 0) {
+          failures -= 1;
+          return Promise.reject(new Error("locked"));
+        }
+        written.push(snap.document.code);
+        return Promise.resolve();
+      },
+      discard: () => Promise.resolve(),
+      onFailure,
+    });
+
+    writer.schedule("b1", () => snapshot("typed"));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(onFailure).toHaveBeenCalledOnce();
+    expect(written).toEqual([]);
+
+    await writer.flush();
+
+    expect(written).toEqual(["typed"]);
+  });
+
+  it("does not try a failed write again once the buffer is discarded", async () => {
+    const written: string[] = [];
+    let failures = 1;
+    const writer = new JournalWriter({
+      write: (_id, snap) => {
+        if (failures > 0) {
+          failures -= 1;
+          return Promise.reject(new Error("locked"));
+        }
+        written.push(snap.document.code);
+        return Promise.resolve();
+      },
+      discard: () => Promise.resolve(),
+      onFailure: () => undefined,
+    });
+
+    writer.schedule("b1", () => snapshot("typed"));
+    await vi.advanceTimersByTimeAsync(300);
+    writer.discard("b1");
+    await writer.flush();
+
+    expect(written).toEqual([]);
+  });
+});
+
 describe("JournalWriter", () => {
   it("writes the latest snapshot once edits pause for 300 ms", async () => {
     const { log, writer } = recorder();
@@ -106,7 +159,7 @@ describe("JournalWriter", () => {
     expect(log.sort()).toEqual(["write b1 one", "write b2 two"]);
   });
 
-  it("reports a failed write once and keeps going", async () => {
+  it("reports every failed attempt and keeps going", async () => {
     const failures: unknown[] = [];
     const writer = new JournalWriter({
       write: () => Promise.reject(new Error("disk full")),
@@ -118,6 +171,7 @@ describe("JournalWriter", () => {
     writer.schedule("b2", () => snapshot("y"));
     await writer.flush();
 
-    expect(failures).toHaveLength(2);
+    // Each buffer: the write, then the one more try a flush gives.
+    expect(failures).toHaveLength(4);
   });
 });

@@ -76,9 +76,15 @@ export async function startSession(deps: SessionDeps): Promise<AppSession> {
   let preferences = snapshot.preferences;
   let preferencesTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const savePreferences = () => {
+  const savePreferences = (): Promise<void> => {
     preferencesTimer = undefined;
-    ipc.updatePreferences(preferences).catch(warn("cannot save the preferences"));
+    return ipc.updatePreferences(preferences).catch(warn("cannot save the preferences"));
+  };
+  /** Saves preferences still waiting for their pause, if any. */
+  const flushPreferences = (): Promise<void> => {
+    if (preferencesTimer === undefined) return Promise.resolve();
+    clearTimeout(preferencesTimer);
+    return savePreferences();
   };
 
   /** Events are hints (docs/adr/0007): list the folder again and re-check the open tabs. */
@@ -113,9 +119,14 @@ export async function startSession(deps: SessionDeps): Promise<AppSession> {
   const stopListening = await Promise.all([
     ipc.onScriptsChanged(reconcile),
     ipc.onFlushRequested(() => {
-      workspace
-        .flushJournal()
-        .catch(warn("cannot flush the recovery journal"))
+      // Everything still in memory goes to disk before the window may close: unsaved work, the
+      // record of the open tabs and preferences changed in the last moments.
+      Promise.all([
+        workspace.flushJournal().catch(warn("cannot flush the recovery journal")),
+        flushPreferences(),
+      ])
+        .then(() => workspace.settled())
+        .catch(warn("cannot finish writing before closing"))
         .finally(() => {
           ipc.readyToClose().catch(warn("cannot confirm the close"));
         });
@@ -144,10 +155,7 @@ export async function startSession(deps: SessionDeps): Promise<AppSession> {
       stopListening.forEach((stop) => {
         stop();
       });
-      if (preferencesTimer !== undefined) {
-        clearTimeout(preferencesTimer);
-        savePreferences();
-      }
+      void flushPreferences();
     },
   };
 }
