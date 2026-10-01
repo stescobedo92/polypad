@@ -1,6 +1,8 @@
 {
   "common": {
-    "notAvailableYet": "Not available yet"
+    "notAvailableYet": "Not available yet",
+    "cancel": "Cancel",
+    "dismiss": "Dismiss"
   },
   "menu": {
     "label": "Application menu",
@@ -21,7 +23,19 @@
     "scripts": {
       "title": "My scripts",
       "search": "Search scripts",
-      "empty": "Scripts you save appear here."
+      "empty": "This folder has no scripts yet.",
+      "tree": "Scripts",
+      "newScript": "New script",
+      "newFolder": "New folder",
+      "rename": "Rename",
+      "delete": "Move to trash",
+      "chooseFolder": "Choose scripts folder…",
+      "chooseFolderTitle": "Choose the scripts folder",
+      "noFolder": "No scripts folder is open.",
+      "unavailable": "The folder “{{folder}}” is not available, so this one is shown instead.",
+      "truncated": "Only the first 10,000 entries are shown.",
+      "actions": "Actions for {{name}}",
+      "moveTo": "Move to…"
     },
     "samples": {
       "title": "Samples"
@@ -30,7 +44,14 @@
   "tabs": {
     "label": "Open scripts",
     "untitled": "Untitled {{index}}",
-    "new": "New script (Ctrl+N)"
+    "new": "New script (Ctrl+N)",
+    "close": "Close {{title}}",
+    "recovered": "{{name}} (recovered)",
+    "state": {
+      "modified": "unsaved changes",
+      "changed": "changed on disk",
+      "missing": "deleted on disk"
+    }
   },
   "toolbar": {
     "label": "Script toolbar",
@@ -54,7 +75,17 @@
   },
   "editor": {
     "label": "Code editor",
-    "placeholder": "Write your {{language}} code here. Press F5 to run it."
+    "loading": "Loading the editor…",
+    "failed": "PolyPad could not open its workspace. Restart it; if it keeps happening, check the log.",
+    "conflict": {
+      "changed": "This script changed on disk.",
+      "missing": "This script was deleted on disk. Saving creates it again.",
+      "reload": "Reload from disk",
+      "keepMine": "Keep my changes",
+      "save": "Save again"
+    },
+    "empty": "No script is open.",
+    "startScript": "Start a new script"
   },
   "results": {
     "label": "Results",
@@ -80,6 +111,91 @@
     "position": "Ln {{line}}, Col {{column}}",
     "encoding": "UTF-8",
     "version": "PolyPad {{version}}",
-    "versionUnavailable": "Version unavailable"
+    "versionUnavailable": "Version unavailable",
+    "lineEnding": {
+      "lf": "LF",
+      "crlf": "CRLF"
+    }
+  },
+  "dialogs": {
+    "unsaved": {
+      "title": "Unsaved changes",
+      "message": "Save the changes to {{title}} before closing?",
+      "save": "Save",
+      "discard": "Don't save"
+    },
+    "name": {
+      "label": "Name",
+      "saveAs": {
+        "title": "Save script",
+        "submit": "Save"
+      },
+      "newScript": {
+        "title": "New script",
+        "submit": "Create"
+      },
+      "newFolder": {
+        "title": "New folder",
+        "submit": "Create"
+      },
+      "rename": {
+        "title": "Rename",
+        "submit": "Rename"
+      },
+      "folder": "Folder",
+      "topLevel": "Top level"
+    },
+    "delete": {
+      "title": "Move to trash",
+      "message": "Move {{name}} to the trash?",
+      "confirm": "Move to trash"
+    },
+    "move": {
+      "title": "Move",
+      "message": "Move {{name}} to:",
+      "folder": "Folder",
+      "submit": "Move",
+      "nowhere": "There is no other folder to move it to."
+    }
+  },
+  "errors": {
+    "internal": "Something went wrong (reference {{reference}}). The log has the details.",
+    "notFound": "It no longer exists on disk.",
+    "alreadyExists": "That name is already taken.",
+    "conflict": "The script changed on disk since it was opened.",
+    "invalidName": {
+      "empty": "Enter a name.",
+      "tooLong": "The name is too long.",
+      "leadingDot": "Names cannot start with a dot.",
+      "invalidCharacter": "Names cannot contain {{character}}",
+      "reservedName": "That name is reserved by Windows.",
+      "trailingDotOrSpace": "Names cannot end with a dot or a space."
+    },
+    "notAScript": "That is not a script.",
+    "notAFolder": "That is not a folder.",
+    "moveIntoItself": "A folder cannot be moved into itself.",
+    "outsideScriptsFolder": "That entry points outside the scripts folder.",
+    "unsupportedDocument": {
+      "missingHeader": "This file is not a PolyPad script.",
+      "invalidHeader": "The header of the script is not valid JSON (line {{line}}, column {{column}}).",
+      "missingSeparator": "The script has no --- line after its header (line {{line}}).",
+      "invalidVersion": "The script has no valid format version.",
+      "newerFormat": "This script was created by a newer PolyPad.",
+      "unknownLanguage": "The script uses a language this PolyPad does not know.",
+      "unknownMode": "The script uses a mode this PolyPad does not know.",
+      "invalidField": "The header field “{{field}}” is not valid.",
+      "tooLarge": "The script is too large to open.",
+      "invalidEncoding": "The script is not UTF-8 text.",
+      "other": "The script cannot be opened."
+    },
+    "documentTooLarge": "The script is too large to be saved.",
+    "trashUnavailable": "It could not be moved to the trash.",
+    "scriptsFolderUnavailable": "The scripts folder is not available.",
+    "recoveryUnavailable": "Crash recovery is not working: unsaved changes would be lost if PolyPad closed unexpectedly.",
+    "unsavedBeforeSwitch": "Save or discard your changes before choosing another scripts folder."
+  },
+  "notices": {
+    "skipped": "These scripts from the last session no longer exist: {{names}}.",
+    "label": "Notices"
   }
 }

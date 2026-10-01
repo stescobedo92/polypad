@@ -101,6 +101,10 @@ main-window capability gains the `allow-<command>` permissions of the commands a
 - **Stores (Zustand):** `documents` (open buffers: id, path, header, dirty flag, stamp, conflict
   state — the text lives in Monaco models), `workspace` (tree, scripts root), `ui` (palette, panel
   collapse state). TanStack Query is deferred to Phase 4, where remote async data appears.
+  *As built in PR 1b:* the documents store is `features/workspace/workspace.ts`, the tree is
+  `features/explorer/explorer.ts` and `app/ui.ts` holds the dialog, notice and cursor; `app/session.ts`
+  wires them to the backend and `app/actions.ts` is the only thing components call. None of them
+  imports React, so they are tested against an in-memory backend.
 - **Editor adapter** (`features/editor/monaco/`): the only module that imports `monaco-editor`,
   loaded lazily so the shell paints before the ~4 MB editor chunk (§6.2).
 - **Command registry** (`shared/commands/`): single source for menus, palette and shortcuts (§6.4).
@@ -271,6 +275,9 @@ own: the layout stores them at their collapsed size.
 
 - "My Scripts" is an accessible tree (`role="tree"`): arrow keys, Enter opens, F2 renames, Delete
   deletes; context menu with New script, New folder, Rename, Delete; drag and drop to move.
+  HTML drag and drop needs `dragDropEnabled: false` on the main window: otherwise Tauri takes every
+  drop for its native file-drop event, which on Windows stops the page from seeing it. PolyPad does
+  not use that event.
 - Tabs show a dirty dot, "deleted on disk" and conflict states; Ctrl+W closes the active tab.
 - Connections and Samples stay as in Phase 0.
 
