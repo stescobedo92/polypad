@@ -2,7 +2,7 @@ import { useId, useState, type ReactNode, type SyntheticEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { ScriptPath, TreeEntry } from "../../shared/ipc";
-import { scriptTitle } from "../../shared/scripts";
+import { parentOf, scriptTitle } from "../../shared/scripts";
 import { Button } from "../../shared/ui/Button";
 import { Dialog } from "../../shared/ui/Dialog";
 import type { Actions } from "../actions";
@@ -29,6 +29,8 @@ export function Dialogs({ dialog, tabTitle, folders, actions }: DialogsProps) {
       );
     case "confirmDelete":
       return <DeleteDialog entry={dialog.entry} actions={actions} />;
+    case "move":
+      return <MoveDialog entry={dialog.entry} folders={folders} actions={actions} />;
     default:
       return null;
   }
@@ -80,6 +82,68 @@ function DeleteDialog({
           {t("dialogs.delete.confirm")}
         </Button>
       </Buttons>
+    </Dialog>
+  );
+}
+
+interface MoveDialogProps {
+  readonly entry: TreeEntry;
+  readonly folders: readonly ScriptPath[];
+  readonly actions: Actions;
+}
+
+function MoveDialog({ entry, folders, actions }: MoveDialogProps) {
+  const { t } = useTranslation();
+  const folderId = useId();
+  const parent = parentOf(entry.path);
+  // Somewhere else, and never inside itself.
+  const targets = [
+    ...(parent === null ? [] : [TOP_LEVEL]),
+    ...folders.filter(
+      (path) => path !== parent && path !== entry.path && !path.startsWith(`${entry.path}/`),
+    ),
+  ];
+  const [folder, setFolder] = useState(targets[0] ?? TOP_LEVEL);
+  const name = entry.kind === "script" ? scriptTitle(entry.name) : entry.name;
+
+  const submit = (event: SyntheticEvent) => {
+    event.preventDefault();
+    if (targets.length === 0) return;
+    void actions.confirmMove(folder === TOP_LEVEL ? null : folder);
+  };
+
+  return (
+    <Dialog title={t("dialogs.move.title")} onDismiss={actions.cancelDialog}>
+      <form onSubmit={submit} className="flex flex-col gap-2 text-sm">
+        <p>{t("dialogs.move.message", { name })}</p>
+        {targets.length === 0 ? (
+          <p className="text-pencil">{t("dialogs.move.nowhere")}</p>
+        ) : (
+          <Field id={folderId} label={t("dialogs.move.folder")}>
+            <select
+              id={folderId}
+              data-autofocus
+              value={folder}
+              onChange={(event) => {
+                setFolder(event.target.value);
+              }}
+              className="h-7 rounded border border-rule bg-paper px-1 text-ink"
+            >
+              {targets.map((path) => (
+                <option key={path} value={path}>
+                  {path === TOP_LEVEL ? t("dialogs.name.topLevel") : path}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        <Buttons>
+          <Button onClick={actions.cancelDialog}>{t("common.cancel")}</Button>
+          <Button variant="primary" type="submit" disabled={targets.length === 0}>
+            {t("dialogs.move.submit")}
+          </Button>
+        </Buttons>
+      </form>
     </Dialog>
   );
 }

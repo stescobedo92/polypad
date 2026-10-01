@@ -22,6 +22,8 @@ export interface ScriptTreeProps {
   readonly onRename: (entry: TreeEntry) => void;
   readonly onDelete: (entry: TreeEntry) => void;
   readonly onMove: (path: ScriptPath, folder: ScriptPath | null) => void;
+  /** Asks where to move an entry: what dragging does, for the keyboard. */
+  readonly onMoveTo: (entry: TreeEntry) => void;
 }
 
 /** An entry as one line of the tree. */
@@ -79,6 +81,7 @@ export function ScriptTree({
   onRename,
   onDelete,
   onMove,
+  onMoveTo,
 }: ScriptTreeProps) {
   const { t } = useTranslation();
   const rows = visibleRows(entries, expanded);
@@ -285,16 +288,14 @@ export function ScriptTree({
               >
                 {t("explorer.scripts.rename")}
               </ContextMenu.Item>
-              {menuRow.parent !== null && (
-                <ContextMenu.Item
-                  className={MENU_ITEM}
-                  onSelect={() => {
-                    onMove(menuRow.entry.path, null);
-                  }}
-                >
-                  {t("explorer.scripts.moveToRoot")}
-                </ContextMenu.Item>
-              )}
+              <ContextMenu.Item
+                className={MENU_ITEM}
+                onSelect={() => {
+                  onMoveTo(menuRow.entry);
+                }}
+              >
+                {t("explorer.scripts.moveTo")}
+              </ContextMenu.Item>
               <ContextMenu.Item
                 className={MENU_ITEM}
                 onSelect={() => {

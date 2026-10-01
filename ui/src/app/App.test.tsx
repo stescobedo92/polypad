@@ -1,5 +1,5 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -288,12 +288,14 @@ describe("saving and closing", () => {
     await user.click(screen.getByRole("button", { name: "New script (Ctrl+N)" }));
     await user.type(editorText(), "draft");
 
-    await user.click(screen.getByRole("button", { name: "Close Untitled 1" }));
+    const firstTab = screen.getByRole("tab", { name: "Untitled 1" });
+    expect(firstTab).toHaveAttribute("aria-keyshortcuts", "Delete");
+    await user.click(screen.getByTitle("Close Untitled 1"));
     await waitFor(() => {
       expect(scriptTabs()).toEqual(["Untitled 2, unsaved changes"]);
     });
 
-    await user.click(screen.getByRole("button", { name: "Close Untitled 2" }));
+    await user.click(screen.getByTitle("Close Untitled 2"));
     const dialog = within(await screen.findByRole("dialog", { name: "Unsaved changes" }));
     expect(dialog.getByText("Save the changes to Untitled 2 before closing?")).toBeInTheDocument();
     await user.click(dialog.getByRole("button", { name: "Cancel" }));
@@ -411,6 +413,25 @@ describe("the scripts folder", () => {
       expect(scriptTabs()).toEqual(["Untitled 1", "b"]);
     });
     expect(backend.files.has("b.ppad")).toBe(true);
+  });
+
+  it("moves a script into a folder chosen in a dialog", async () => {
+    const { backend, user, treeItem } = await renderApp((b) => {
+      b.write("a.ppad", "x");
+      b.folders.add("reports");
+    });
+
+    fireEvent.contextMenu(await treeItem("a"));
+    await user.click(await screen.findByRole("menuitem", { name: "Move to…" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Move" }));
+    expect(dialog.getByText("Move a to:")).toBeInTheDocument();
+    await user.selectOptions(dialog.getByLabelText("Folder"), "reports");
+    await user.click(dialog.getByRole("button", { name: "Move" }));
+
+    await waitFor(() => {
+      expect(backend.files.has("reports/a.ppad")).toBe(true);
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("moves a script to the trash only after confirming", async () => {

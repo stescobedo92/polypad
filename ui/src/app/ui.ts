@@ -24,7 +24,9 @@ export type Dialog =
       readonly initial: string;
       readonly error?: Message;
     }
-  | { readonly kind: "confirmDelete"; readonly entry: TreeEntry };
+  | { readonly kind: "confirmDelete"; readonly entry: TreeEntry }
+  /** Where to move an entry, for those who cannot drag. */
+  | { readonly kind: "move"; readonly entry: TreeEntry };
 
 export interface UiState {
   readonly dialog: Dialog | null;

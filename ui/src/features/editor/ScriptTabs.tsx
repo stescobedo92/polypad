@@ -84,6 +84,7 @@ export function ScriptTabs({ tabs, activeId, onActivate, onClose, onNew }: Scrip
                 aria-selected={selected}
                 aria-controls={SCRIPT_PANEL_ID}
                 tabIndex={selected ? 0 : -1}
+                aria-keyshortcuts="Delete"
                 title={label}
                 onClick={() => {
                   onActivate(tab.id, true);
@@ -103,9 +104,12 @@ export function ScriptTabs({ tabs, activeId, onActivate, onClose, onNew }: Scrip
                   {tab.modified ? "●" : ""}
                 </span>
               </button>
+              {/* For the mouse: a tab list may only contain tabs, and the keyboard closes the
+                  focused tab with Delete (or the active one with Ctrl+W). */}
               <button
                 type="button"
                 aria-label={close}
+                aria-hidden
                 title={close}
                 tabIndex={-1}
                 onClick={() => {

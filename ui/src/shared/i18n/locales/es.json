@@ -29,13 +29,13 @@
       "newFolder": "Nueva carpeta",
       "rename": "Renombrar",
       "delete": "Mover a la papelera",
-      "moveToRoot": "Mover al nivel superior",
       "chooseFolder": "Elegir carpeta de scripts…",
       "chooseFolderTitle": "Elige la carpeta de scripts",
       "noFolder": "No hay ninguna carpeta de scripts abierta.",
       "unavailable": "La carpeta «{{folder}}» no está disponible; se muestra esta en su lugar.",
       "truncated": "Solo se muestran las primeras 10 000 entradas.",
-      "actions": "Acciones para {{name}}"
+      "actions": "Acciones para {{name}}",
+      "moveTo": "Mover a…"
     },
     "samples": {
       "title": "Ejemplos"
@@ -149,6 +149,13 @@
       "title": "Mover a la papelera",
       "message": "¿Mover {{name}} a la papelera?",
       "confirm": "Mover a la papelera"
+    },
+    "move": {
+      "title": "Mover",
+      "message": "Mover {{name}} a:",
+      "folder": "Carpeta",
+      "submit": "Mover",
+      "nowhere": "No hay otra carpeta a la que moverlo."
     }
   },
   "errors": {

@@ -57,12 +57,26 @@ export class FakeBackend implements SessionIpc {
   write(path: ScriptPath, code: string, header: Header = headerFor("csharp")): ContentStamp {
     const stamp = this.stamp();
     this.files.set(path, { document: documentOf(code, header), stamp });
+    // Like a real disk: the folders stay when their last script goes.
+    for (let slash = path.indexOf("/"); slash >= 0; slash = path.indexOf("/", slash + 1)) {
+      this.folders.add(path.slice(0, slash));
+    }
     return stamp;
   }
 
   /** Deletes a script as another program would. */
   remove(path: ScriptPath): void {
     this.files.delete(path);
+  }
+
+  /** Deletes a folder and everything in it as another program would. */
+  removeFolder(path: ScriptPath): void {
+    for (const key of [...this.files.keys()]) {
+      if (key.startsWith(`${path}/`)) this.files.delete(key);
+    }
+    for (const key of [...this.folders]) {
+      if (key === path || key.startsWith(`${path}/`)) this.folders.delete(key);
+    }
   }
 
   code(path: ScriptPath): string | undefined {
@@ -89,6 +103,10 @@ export class FakeBackend implements SessionIpc {
     const current = this.files.get(path)?.stamp ?? null;
     if (current !== expected) {
       return Promise.reject(new CommandFailure({ code: "conflict", path, current }));
+    }
+    const slash = path.lastIndexOf("/");
+    if (slash >= 0 && !this.exists(path.slice(0, slash))) {
+      return Promise.reject(new CommandFailure({ code: "notFound", path }));
     }
     const stamp = this.stamp();
     this.files.set(path, { document, stamp });

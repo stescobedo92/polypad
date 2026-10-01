@@ -18,6 +18,7 @@ type TreeHandlers = Pick<
   | "onRename"
   | "onDelete"
   | "onMove"
+  | "onMoveTo"
 >;
 
 interface ExplorerSidebarProps extends TreeHandlers {

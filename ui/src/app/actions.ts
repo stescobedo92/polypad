@@ -34,6 +34,10 @@ export interface Actions {
   /** Answers the delete confirmation. */
   readonly confirmDelete: () => Promise<void>;
   readonly move: (path: ScriptPath, folder: ScriptPath | null) => Promise<void>;
+  /** Asks where to move an entry; the keyboard's way to do what dragging does. */
+  readonly promptMove: (entry: TreeEntry) => void;
+  /** Answers the move dialog: `null` is the top level. */
+  readonly confirmMove: (folder: ScriptPath | null) => Promise<void>;
   readonly chooseScriptsFolder: (title: string) => Promise<void>;
   readonly dismissNotice: () => void;
 }
@@ -120,8 +124,9 @@ export function createActions(session: AppSession, ui: Ui): Actions {
   }
 
   function askSaveName(id: BufferId, thenClose: boolean): void {
-    const previous = tab(id)?.previousPath;
-    const suggestion = previous == null ? "" : scriptTitle(fileNameOf(previous));
+    const current = tab(id);
+    const named = current?.path ?? current?.previousPath ?? null;
+    const suggestion = named === null ? "" : scriptTitle(fileNameOf(named));
     askName({ purpose: "saveAs", tabId: id, thenClose }, suggestion);
   }
 
@@ -138,7 +143,12 @@ export function createActions(session: AppSession, ui: Ui): Actions {
       }
       return outcome === "saved";
     } catch (error) {
-      notify(error);
+      // Its folder went too: it can only be saved somewhere else.
+      if (error instanceof CommandFailure && error.error.code === "notFound" && tab(id)) {
+        askSaveName(id, thenClose);
+      } else {
+        notify(error);
+      }
       return false;
     }
   }
@@ -217,8 +227,13 @@ export function createActions(session: AppSession, ui: Ui): Actions {
       if (pending === null || dialog?.kind !== "name") return;
       try {
         await runPendingName(pending, name, folder);
-        closeDialog();
+        if (pendingName === pending) closeDialog();
       } catch (error) {
+        // Unless the user closed the dialog (or opened another one) while the name was checked.
+        if (pendingName !== pending) {
+          notify(error);
+          return;
+        }
         ui.setState({ dialog: { ...dialog, initial: name, error: failureMessage(error) } });
       }
     },
@@ -243,6 +258,18 @@ export function createActions(session: AppSession, ui: Ui): Actions {
     promptDelete(entry) {
       ui.setState({ dialog: { kind: "confirmDelete", entry } });
     },
+
+    promptMove(entry) {
+      ui.setState({ dialog: { kind: "move", entry } });
+    },
+
+    confirmMove: (folder) =>
+      attempt(async () => {
+        const dialog = ui.getState().dialog;
+        if (dialog?.kind !== "move") return;
+        closeDialog();
+        await explorer.move(dialog.entry.path, folder);
+      }),
 
     confirmDelete: () =>
       attempt(async () => {

@@ -161,6 +161,7 @@ export function AppShell({ services }: { readonly services: AppServices }) {
             onMove={(path, folder) => {
               void actions.move(path, folder);
             }}
+            onMoveTo={actions.promptMove}
             onChooseFolder={() => {
               void actions.chooseScriptsFolder(t("explorer.scripts.chooseFolderTitle"));
             }}

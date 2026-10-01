@@ -38,6 +38,7 @@ function setup(initiallyExpanded: ScriptPath[] = []) {
     onRename: vi.fn(),
     onDelete: vi.fn(),
     onMove: vi.fn(),
+    onMoveTo: vi.fn(),
   } satisfies Partial<ScriptTreeProps>;
 
   function Harness() {
@@ -183,6 +184,7 @@ describe("ScriptTree", () => {
       "New script",
       "New folder",
       "Rename",
+      "Move to…",
       "Move to trash",
     ]);
     await user.click(menu.getByRole("menuitem", { name: "New script" }));
@@ -193,7 +195,7 @@ describe("ScriptTree", () => {
     expect(handlers.onRename).toHaveBeenCalledExactlyOnceWith(entryAt("reports"));
   });
 
-  it("creates next to a script, and lets a nested entry go back to the top level", async () => {
+  it("creates next to a script, and moves without a mouse through a dialog", async () => {
     const { user, handlers, item } = setup(["reports"]);
 
     fireEvent.contextMenu(item("q1"));
@@ -201,12 +203,8 @@ describe("ScriptTree", () => {
     expect(handlers.onNewFolder).toHaveBeenCalledExactlyOnceWith("reports");
 
     fireEvent.contextMenu(item("q1"));
-    await user.click(await screen.findByRole("menuitem", { name: "Move to the top level" }));
-    expect(handlers.onMove).toHaveBeenCalledExactlyOnceWith("reports/q1.ppad", null);
-
-    fireEvent.contextMenu(item("a"));
-    await screen.findByRole("menu");
-    expect(screen.queryByRole("menuitem", { name: "Move to the top level" })).toBeNull();
+    await user.click(await screen.findByRole("menuitem", { name: "Move to…" }));
+    expect(handlers.onMoveTo).toHaveBeenCalledExactlyOnceWith(entryAt("reports/q1.ppad"));
   });
 
   it("creates at the top level from the empty area", async () => {

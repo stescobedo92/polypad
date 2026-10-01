@@ -81,6 +81,25 @@ describe("saving", () => {
     expect(active()).toEqual(expect.objectContaining({ disk: "same", modified: false }));
   });
 
+  it("asks where to save a deleted script whose folder is gone too", async () => {
+    const { backend, editor, session, actions, active, dialog } = await setup((b) => {
+      b.write("dir/a.ppad", "old");
+    });
+    await session.workspace.openScript("dir/a.ppad");
+    editor.buffers().edit(active().id, "kept");
+    backend.removeFolder("dir");
+    await session.workspace.reconcile({ paths: [], renamed: [], rescan: true });
+
+    await actions.save(active().id);
+    expect(dialog()).toEqual(
+      expect.objectContaining({ kind: "name", purpose: "saveAs", initial: "a" }),
+    );
+    await actions.submitName("a");
+
+    expect(backend.code("a.ppad")).toBe("kept");
+    expect(active().path).toBe("a.ppad");
+  });
+
   it("leaves a script that changed on disk alone until the conflict is resolved", async () => {
     const { backend, editor, session, actions, active } = await setup((b) => {
       b.write("a.ppad", "old");
@@ -93,6 +112,19 @@ describe("saving", () => {
 
     expect(backend.code("a.ppad")).toBe("theirs");
     expect(active().disk).toBe("changed");
+  });
+
+  it("does not bring back a dialog the user closed while its name was being checked", async () => {
+    const { actions, active, dialog } = await setup((b) => {
+      b.write("taken.ppad", "x");
+    });
+    await actions.save(active().id);
+
+    const submitting = actions.submitName("taken");
+    actions.cancelDialog();
+    await submitting;
+
+    expect(dialog()).toBeNull();
   });
 
   it("saves a titled script directly", async () => {
@@ -231,6 +263,24 @@ describe("explorer actions", () => {
     await actions.submitName("b");
 
     expect(backend.files.has("b.ppad")).toBe(true);
+  });
+
+  it("moves an entry to the folder chosen in a dialog, for keyboard users", async () => {
+    const { backend, session, actions, dialog } = await setup((b) => {
+      b.write("a.ppad", "x");
+      b.folders.add("reports");
+    });
+    const entry = session.explorer.store
+      .getState()
+      .tree?.entries.find((candidate) => candidate.path === "a.ppad");
+    if (entry === undefined) throw new Error("no entry");
+
+    actions.promptMove(entry);
+    expect(dialog()).toEqual({ kind: "move", entry });
+    await actions.confirmMove("reports");
+
+    expect(backend.files.has("reports/a.ppad")).toBe(true);
+    expect(dialog()).toBeNull();
   });
 
   it("deletes only after confirmation", async () => {

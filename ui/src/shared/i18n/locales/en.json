@@ -29,13 +29,13 @@
       "newFolder": "New folder",
       "rename": "Rename",
       "delete": "Move to trash",
-      "moveToRoot": "Move to the top level",
       "chooseFolder": "Choose scripts folder…",
       "chooseFolderTitle": "Choose the scripts folder",
       "noFolder": "No scripts folder is open.",
       "unavailable": "The folder “{{folder}}” is not available, so this one is shown instead.",
       "truncated": "Only the first 10,000 entries are shown.",
-      "actions": "Actions for {{name}}"
+      "actions": "Actions for {{name}}",
+      "moveTo": "Move to…"
     },
     "samples": {
       "title": "Samples"
@@ -149,6 +149,13 @@
       "title": "Move to trash",
       "message": "Move {{name}} to the trash?",
       "confirm": "Move to trash"
+    },
+    "move": {
+      "title": "Move",
+      "message": "Move {{name}} to:",
+      "folder": "Folder",
+      "submit": "Move",
+      "nowhere": "There is no other folder to move it to."
     }
   },
   "errors": {
