@@ -22,8 +22,10 @@ export class MemoryBuffers implements TextBuffers {
 
   replace(id: BufferId, text: string): void {
     const entry = this.entry(id);
-    entry.text = text;
     entry.saved = text;
+    entry.text = text;
+    // An editor reports the replacement like any other change.
+    this.notify(id);
   }
 
   markSaved(id: BufferId, text: string): void {
@@ -51,9 +53,7 @@ export class MemoryBuffers implements TextBuffers {
   /** Replaces the text as typing would, notifying listeners. */
   edit(id: BufferId, text: string): void {
     this.entry(id).text = text;
-    this.listeners.forEach((listener) => {
-      listener(id);
-    });
+    this.notify(id);
   }
 
   language(id: BufferId): LanguageId {
@@ -62,6 +62,12 @@ export class MemoryBuffers implements TextBuffers {
 
   has(id: BufferId): boolean {
     return this.entries.has(id);
+  }
+
+  private notify(id: BufferId): void {
+    this.listeners.forEach((listener) => {
+      listener(id);
+    });
   }
 
   private entry(id: BufferId): Entry {
