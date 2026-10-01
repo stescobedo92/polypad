@@ -24,6 +24,7 @@ import "monaco-editor/languages/definitions/sql/register";
 import type { BufferId, LanguageId } from "../../../shared/ipc";
 import type { TextBuffers } from "../../workspace/textBuffers";
 import type { CursorPosition, EditorHandle, EditorModule } from "../editorModule";
+import { changedSpan } from "../textDiff";
 
 // A worker bundled by Vite and served from 'self': no CDN, no blob: URL, no data: URL.
 self.MonacoEnvironment = {
@@ -109,12 +110,22 @@ class MonacoBuffers implements TextBuffers {
 
   replace(id: BufferId, text: string): void {
     const entry = this.entry(id);
-    // Compared by text while `setValue` reports the change, so listeners do not see the new
-    // text as an unsaved edit; by version again once the model has one for it.
+    const { model } = entry;
+    // Compared by text while the edit is reported, so listeners do not see the new text as an
+    // unsaved edit; by version again once the model has one for it.
     entry.savedVersion = null;
     entry.savedText = text;
-    entry.model.setValue(text);
-    entry.savedVersion = entry.model.getAlternativeVersionId();
+    const span = changedSpan(model.getValue(), text);
+    if (span !== null) {
+      // Only what differs, as an undoable edit: unlike `setValue`, the cursor, scroll and undo
+      // history survive a reload, and undo brings back the text it replaced.
+      const range = monaco.Range.fromPositions(
+        model.getPositionAt(span.start),
+        model.getPositionAt(span.end),
+      );
+      model.pushEditOperations([], [{ range, text: span.text }], () => null);
+    }
+    entry.savedVersion = model.getAlternativeVersionId();
   }
 
   markSaved(id: BufferId, text: string): void {
