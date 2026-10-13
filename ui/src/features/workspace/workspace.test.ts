@@ -609,6 +609,72 @@ describe("changes made by other programs", () => {
   });
 });
 
+describe("reading a changed file at the wrong moment", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each([
+    { slow: "first", delays: [200, 10] },
+    { slow: "second", delays: [10, 200] },
+  ])("shows the newest file when the $slow of two reads is the slow one", async ({ delays }) => {
+    vi.useFakeTimers();
+    const { backend, buffers, workspace, tab } = setup();
+    backend.write("a.ppad", "v1");
+    await workspace.openScript("a.ppad");
+    const read = backend.openScript.bind(backend);
+    const waits = [...delays];
+    backend.openScript = async (path) => {
+      // What the file holds when the read is asked for, arriving after its own delay.
+      const loaded = await read(path);
+      await new Promise((resolve) => setTimeout(resolve, waits.shift() ?? 0));
+      return loaded;
+    };
+
+    // Two events in a row (the watcher, then the window's focus) with a change in between.
+    backend.write("a.ppad", "v2");
+    const first = workspace.reconcile({ paths: ["a.ppad"], renamed: [], rescan: false });
+    await vi.advanceTimersByTimeAsync(5);
+    const newest = backend.write("a.ppad", "v3");
+    const second = workspace.reconcile({ paths: ["a.ppad"], renamed: [], rescan: false });
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.all([first, second]);
+
+    expect(buffers.text("b1")).toBe("v3");
+    expect(tab("b1")).toEqual(
+      expect.objectContaining({ baseStamp: newest, disk: "same", modified: false }),
+    );
+  });
+
+  it("does not undo a save that landed while the file was being read", async () => {
+    const { backend, buffers, workspace, tab } = setup();
+    backend.write("a.ppad", "base");
+    await workspace.openScript("a.ppad");
+    buffers.edit("b1", "mine");
+    backend.write("a.ppad", "theirs");
+    await workspace.save("b1");
+    const read = backend.openScript.bind(backend);
+    backend.openScript = async (path) => {
+      // A reload was asked for, then "keep mine" and a save before the file arrived.
+      const loaded = await read(path);
+      workspace.keepMine("b1");
+      await workspace.save("b1");
+      return loaded;
+    };
+
+    await workspace.reloadFromDisk("b1");
+
+    expect(buffers.text("b1")).toBe("mine");
+    expect(tab("b1")).toEqual(
+      expect.objectContaining({
+        baseStamp: backend.files.get("a.ppad")?.stamp,
+        disk: "same",
+        modified: false,
+      }),
+    );
+  });
+});
+
 describe("restoring the previous session", () => {
   function unsaved(path: string | null, code: string, baseStamp: string | null) {
     return {

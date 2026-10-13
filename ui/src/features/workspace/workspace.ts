@@ -193,8 +193,29 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
   let pending: Promise<unknown> = Promise.resolve();
   /** The save of each tab in progress; the next one waits for it. */
   const saves = new Map<BufferId, Promise<SaveOutcome>>();
+  /** The reload of each tab in progress; the next one waits for it. */
+  const reloads = new Map<BufferId, Promise<void>>();
 
   const find = (id: BufferId) => store.getState().tabs.find((tab) => tab.id === id);
+
+  /**
+   * Runs `work` on a tab once the work `queue` holds for it has finished, however it ended. The
+   * first one starts at once.
+   */
+  async function inTurn<T>(
+    queue: Map<BufferId, Promise<T>>,
+    id: BufferId,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    const previous = queue.get(id);
+    const run = previous === undefined ? work() : previous.then(work, work);
+    queue.set(id, run);
+    try {
+      return await run;
+    } finally {
+      if (queue.get(id) === run) queue.delete(id);
+    }
+  }
 
   function track(work: Promise<unknown>): void {
     pending = Promise.allSettled([pending, work]);
@@ -292,13 +313,21 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
    * Replaces a tab with its file. In the background (`keepEdits`), edits made while the file was
    * being read win: the tab is put in conflict instead of losing them.
    */
-  async function reload(id: BufferId, keepEdits: boolean): Promise<void> {
-    const path = find(id)?.path;
+  function reload(id: BufferId, keepEdits: boolean): Promise<void> {
+    // One read of a tab's file at a time: two that overlap can arrive in either order, and the
+    // older one arriving last would leave the tab showing what is no longer on disk.
+    return inTurn(reloads, id, () => reloadNow(id, keepEdits));
+  }
+
+  async function reloadNow(id: BufferId, keepEdits: boolean): Promise<void> {
+    const before = find(id);
+    const path = before?.path;
     if (path == null) return;
     const loaded = await ipc.openScript(path);
     const tab = find(id);
-    // Closed or moved while the file was on its way.
-    if (tab?.path !== path) return;
+    // Closed, moved or saved while the file was on its way: what was read is not what the tab
+    // is based on any more.
+    if (tab?.path !== path || tab.baseStamp !== before?.baseStamp) return;
     if (keepEdits && tab.modified) {
       updateTab(id, (latest) => ({ ...latest, disk: "changed", diskStamp: loaded.stamp }));
       return;
@@ -585,24 +614,11 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
       return Promise.resolve();
     },
 
-    async save(id) {
+    save(id) {
       // One save of a tab at a time, each from the stamp the previous one left: two saves in a
       // row (a held-down Ctrl+S, a slow disk) must not make the tab conflict with itself.
       // The first one starts at once, so it saves the text of the moment it was asked for.
-      const previous = saves.get(id);
-      const run =
-        previous === undefined
-          ? saveNow(id)
-          : previous.then(
-              () => saveNow(id),
-              () => saveNow(id),
-            );
-      saves.set(id, run);
-      try {
-        return await run;
-      } finally {
-        if (saves.get(id) === run) saves.delete(id);
-      }
+      return inTurn(saves, id, () => saveNow(id));
     },
 
     async saveAs(id, parent, name) {
