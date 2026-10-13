@@ -13,6 +13,8 @@ import {
 interface EditorToolbarProps {
   readonly language: Language;
   readonly mode: ExecutionMode;
+  /** No script is open: the pickers have nothing to change. */
+  readonly disabled?: boolean;
   readonly onLanguageChange: (language: LanguageId) => void;
   readonly onModeChange: (mode: ExecutionMode) => void;
 }
@@ -21,6 +23,7 @@ interface EditorToolbarProps {
 export function EditorToolbar({
   language,
   mode,
+  disabled = false,
   onLanguageChange,
   onModeChange,
 }: EditorToolbarProps) {
@@ -35,6 +38,7 @@ export function EditorToolbar({
       <Picker
         label={t("toolbar.language")}
         value={language.id}
+        disabled={disabled}
         onChange={(value) => {
           if (isLanguageId(value)) onLanguageChange(value);
         }}
@@ -49,7 +53,7 @@ export function EditorToolbar({
       <Picker
         label={t("toolbar.mode")}
         value={mode}
-        disabled={language.modes.length === 1}
+        disabled={disabled || language.modes.length === 1}
         onChange={(value) => {
           const next = language.modes.find((candidate) => candidate === value);
           if (next !== undefined) onModeChange(next);

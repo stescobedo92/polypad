@@ -14,10 +14,7 @@ export function ResultsPane() {
   const [active, setActive] = useState<ResultTab>("results");
 
   return (
-    <section
-      aria-label={t("results.label")}
-      className="flex min-h-0 flex-col border-t border-rule bg-paper"
-    >
+    <section aria-label={t("results.label")} className="flex h-full min-h-0 flex-col bg-paper">
       <TabList
         label={t("results.label")}
         tabs={RESULT_TABS}

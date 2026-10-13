@@ -1,19 +1,40 @@
-import { Plus, Search } from "lucide-react";
+import { FilePlus, FolderOpen, FolderPlus, Plus } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { LANGUAGES } from "../../shared/languages";
 import { IconButton } from "../../shared/ui/IconButton";
 import { LanguageSwatch } from "../../shared/ui/LanguageSwatch";
+import type { ExplorerState } from "./explorer";
+import { ScriptTree, type ScriptTreeProps } from "./ScriptTree";
 
-/** Left column: connections, the user's scripts and the bundled samples. */
-export function ExplorerSidebar() {
+type TreeHandlers = Pick<
+  ScriptTreeProps,
+  | "activePath"
+  | "onToggle"
+  | "onOpen"
+  | "onNewScript"
+  | "onNewFolder"
+  | "onRename"
+  | "onDelete"
+  | "onMove"
+  | "onMoveTo"
+>;
+
+interface ExplorerSidebarProps extends TreeHandlers {
+  readonly explorer: ExplorerState;
+  readonly onChooseFolder: () => void;
+}
+
+/** Left column: connections, the scripts folder and the bundled samples. */
+export function ExplorerSidebar({ explorer, onChooseFolder, ...tree }: ExplorerSidebarProps) {
   const { t } = useTranslation();
+  const { folderName, tree: scripts, unavailableFolder, expanded } = explorer;
 
   return (
     <aside
       aria-label={t("explorer.label")}
-      className="flex min-h-0 flex-col gap-4 overflow-y-auto bg-desk py-2"
+      className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto bg-desk py-2"
     >
       <SidebarSection
         title={t("explorer.connections.title")}
@@ -24,9 +45,57 @@ export function ExplorerSidebar() {
 
       <SidebarSection
         title={t("explorer.scripts.title")}
-        action={<IconButton label={t("explorer.scripts.search")} icon={Search} disabled />}
+        grow
+        action={
+          <>
+            <IconButton
+              label={t("explorer.scripts.newScript")}
+              icon={FilePlus}
+              disabled={scripts === null}
+              onClick={() => {
+                tree.onNewScript(null);
+              }}
+            />
+            <IconButton
+              label={t("explorer.scripts.newFolder")}
+              icon={FolderPlus}
+              disabled={scripts === null}
+              onClick={() => {
+                tree.onNewFolder(null);
+              }}
+            />
+            <IconButton
+              label={t("explorer.scripts.chooseFolder")}
+              icon={FolderOpen}
+              onClick={onChooseFolder}
+            />
+          </>
+        }
       >
-        <EmptyNote>{t("explorer.scripts.empty")}</EmptyNote>
+        {unavailableFolder !== null && (
+          <p role="note" className="mx-3 mb-1.5 rounded border border-rule px-2 py-1 text-xs">
+            {t("explorer.scripts.unavailable", { folder: unavailableFolder })}
+          </p>
+        )}
+        {scripts === null ? (
+          <EmptyNote>{t("explorer.scripts.noFolder")}</EmptyNote>
+        ) : (
+          <>
+            {folderName !== null && folderName !== "" && (
+              <p className="truncate px-3 pb-1 text-xs text-faint" title={folderName}>
+                {folderName}
+              </p>
+            )}
+            {scripts.entries.length === 0 && <EmptyNote>{t("explorer.scripts.empty")}</EmptyNote>}
+            <ScriptTree
+              label={t("explorer.scripts.tree")}
+              entries={scripts.entries}
+              expanded={expanded}
+              {...tree}
+            />
+            {scripts.truncated && <EmptyNote>{t("explorer.scripts.truncated")}</EmptyNote>}
+          </>
+        )}
       </SidebarSection>
 
       <SidebarSection title={t("explorer.samples.title")}>
@@ -46,15 +115,17 @@ export function ExplorerSidebar() {
 interface SidebarSectionProps {
   readonly title: string;
   readonly action?: ReactNode;
+  /** Takes the space the other sections leave. */
+  readonly grow?: boolean;
   readonly children: ReactNode;
 }
 
-function SidebarSection({ title, action, children }: SidebarSectionProps) {
+function SidebarSection({ title, action, grow = false, children }: SidebarSectionProps) {
   return (
-    <section aria-label={title}>
-      <div className="flex h-7 items-center justify-between pr-1.5 pl-3">
+    <section aria-label={title} className={grow ? "flex min-h-24 flex-1 flex-col" : undefined}>
+      <div className="flex h-7 shrink-0 items-center justify-between pr-1.5 pl-3">
         <h2 className="text-xs font-semibold text-pencil">{title}</h2>
-        {action}
+        <div className="flex items-center">{action}</div>
       </div>
       {children}
     </section>

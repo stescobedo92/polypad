@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-30
 - **Amended by:** ADR-0007 (workspace command permissions, Rust-only plugins)
+- **Amended by:** ADR-0008 (`style-src 'unsafe-inline'` for Monaco, `worker-src 'self'`, Monaco rewritten for `freezePrototype`)
 
 ## Context
 

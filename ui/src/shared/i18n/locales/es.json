@@ -1,6 +1,8 @@
 {
   "common": {
-    "notAvailableYet": "Aún no disponible"
+    "notAvailableYet": "Aún no disponible",
+    "cancel": "Cancelar",
+    "dismiss": "Descartar"
   },
   "menu": {
     "label": "Menú de la aplicación",
@@ -21,7 +23,19 @@
     "scripts": {
       "title": "Mis scripts",
       "search": "Buscar scripts",
-      "empty": "Los scripts que guardes aparecerán aquí."
+      "empty": "Esta carpeta aún no tiene scripts.",
+      "tree": "Scripts",
+      "newScript": "Nuevo script",
+      "newFolder": "Nueva carpeta",
+      "rename": "Renombrar",
+      "delete": "Mover a la papelera",
+      "chooseFolder": "Elegir carpeta de scripts…",
+      "chooseFolderTitle": "Elige la carpeta de scripts",
+      "noFolder": "No hay ninguna carpeta de scripts abierta.",
+      "unavailable": "La carpeta «{{folder}}» no está disponible; se muestra esta en su lugar.",
+      "truncated": "Solo se muestran las primeras 10 000 entradas.",
+      "actions": "Acciones para {{name}}",
+      "moveTo": "Mover a…"
     },
     "samples": {
       "title": "Ejemplos"
@@ -30,7 +44,14 @@
   "tabs": {
     "label": "Scripts abiertos",
     "untitled": "Sin título {{index}}",
-    "new": "Nuevo script (Ctrl+N)"
+    "new": "Nuevo script (Ctrl+N)",
+    "close": "Cerrar {{title}}",
+    "recovered": "{{name}} (recuperado)",
+    "state": {
+      "modified": "cambios sin guardar",
+      "changed": "cambió en disco",
+      "missing": "borrado en disco"
+    }
   },
   "toolbar": {
     "label": "Barra de herramientas del script",
@@ -54,7 +75,17 @@
   },
   "editor": {
     "label": "Editor de código",
-    "placeholder": "Escribe aquí tu código {{language}}. Pulsa F5 para ejecutarlo."
+    "loading": "Cargando el editor…",
+    "failed": "PolyPad no pudo abrir su espacio de trabajo. Reinícialo; si sigue ocurriendo, revisa el registro.",
+    "conflict": {
+      "changed": "Este script cambió en disco.",
+      "missing": "Este script se borró en disco. Al guardar se vuelve a crear.",
+      "reload": "Recargar desde disco",
+      "keepMine": "Conservar mis cambios",
+      "save": "Guardar de nuevo"
+    },
+    "empty": "No hay ningún script abierto.",
+    "startScript": "Empezar un script nuevo"
   },
   "results": {
     "label": "Resultados",
@@ -80,6 +111,91 @@
     "position": "Lín {{line}}, Col {{column}}",
     "encoding": "UTF-8",
     "version": "PolyPad {{version}}",
-    "versionUnavailable": "Versión no disponible"
+    "versionUnavailable": "Versión no disponible",
+    "lineEnding": {
+      "lf": "LF",
+      "crlf": "CRLF"
+    }
+  },
+  "dialogs": {
+    "unsaved": {
+      "title": "Cambios sin guardar",
+      "message": "¿Guardar los cambios de {{title}} antes de cerrar?",
+      "save": "Guardar",
+      "discard": "No guardar"
+    },
+    "name": {
+      "label": "Nombre",
+      "saveAs": {
+        "title": "Guardar script",
+        "submit": "Guardar"
+      },
+      "newScript": {
+        "title": "Nuevo script",
+        "submit": "Crear"
+      },
+      "newFolder": {
+        "title": "Nueva carpeta",
+        "submit": "Crear"
+      },
+      "rename": {
+        "title": "Renombrar",
+        "submit": "Renombrar"
+      },
+      "folder": "Carpeta",
+      "topLevel": "Nivel superior"
+    },
+    "delete": {
+      "title": "Mover a la papelera",
+      "message": "¿Mover {{name}} a la papelera?",
+      "confirm": "Mover a la papelera"
+    },
+    "move": {
+      "title": "Mover",
+      "message": "Mover {{name}} a:",
+      "folder": "Carpeta",
+      "submit": "Mover",
+      "nowhere": "No hay otra carpeta a la que moverlo."
+    }
+  },
+  "errors": {
+    "internal": "Algo salió mal (referencia {{reference}}). El registro tiene los detalles.",
+    "notFound": "Ya no existe en disco.",
+    "alreadyExists": "Ese nombre ya está en uso.",
+    "conflict": "El script cambió en disco desde que se abrió.",
+    "invalidName": {
+      "empty": "Escribe un nombre.",
+      "tooLong": "El nombre es demasiado largo.",
+      "leadingDot": "Los nombres no pueden empezar por punto.",
+      "invalidCharacter": "Los nombres no pueden contener {{character}}",
+      "reservedName": "Ese nombre está reservado por Windows.",
+      "trailingDotOrSpace": "Los nombres no pueden terminar en punto o espacio."
+    },
+    "notAScript": "Eso no es un script.",
+    "notAFolder": "Eso no es una carpeta.",
+    "moveIntoItself": "Una carpeta no se puede mover dentro de sí misma.",
+    "outsideScriptsFolder": "Esa entrada apunta fuera de la carpeta de scripts.",
+    "unsupportedDocument": {
+      "missingHeader": "Este archivo no es un script de PolyPad.",
+      "invalidHeader": "La cabecera del script no es JSON válido (línea {{line}}, columna {{column}}).",
+      "missingSeparator": "Al script le falta la línea --- tras la cabecera (línea {{line}}).",
+      "invalidVersion": "El script no tiene una versión de formato válida.",
+      "newerFormat": "Este script se creó con una versión más nueva de PolyPad.",
+      "unknownLanguage": "El script usa un lenguaje que este PolyPad no conoce.",
+      "unknownMode": "El script usa un modo que este PolyPad no conoce.",
+      "invalidField": "El campo «{{field}}» de la cabecera no es válido.",
+      "tooLarge": "El script es demasiado grande para abrirlo.",
+      "invalidEncoding": "El script no es texto UTF-8.",
+      "other": "El script no se puede abrir."
+    },
+    "documentTooLarge": "El script es demasiado grande para guardarlo.",
+    "trashUnavailable": "No se pudo mover a la papelera.",
+    "scriptsFolderUnavailable": "La carpeta de scripts no está disponible.",
+    "recoveryUnavailable": "La recuperación ante fallos no funciona: los cambios sin guardar se perderían si PolyPad se cerrara inesperadamente.",
+    "unsavedBeforeSwitch": "Guarda o descarta tus cambios antes de elegir otra carpeta de scripts."
+  },
+  "notices": {
+    "skipped": "Estos scripts de la última sesión ya no existen: {{names}}.",
+    "label": "Avisos"
   }
 }
