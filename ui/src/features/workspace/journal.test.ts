@@ -159,6 +159,19 @@ describe("JournalWriter", () => {
     expect(log.sort()).toEqual(["write b1 one", "write b2 two"]);
   });
 
+  it("flush does not finish before edits made while it was writing are written too", async () => {
+    const { log, writer } = recorder({ slowWrites: true });
+    writer.schedule("b1", () => snapshot("one"));
+
+    // What had been written by the time the flush reported it was done.
+    const flushed = writer.flush().then(() => [...log]);
+    await vi.advanceTimersByTimeAsync(450); // the write of "one" takes 500 ms
+    writer.schedule("b1", () => snapshot("two"));
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(await flushed).toEqual(["write b1 one", "write b1 two"]);
+  });
+
   it("reports every failed attempt and keeps going", async () => {
     const failures: unknown[] = [];
     const writer = new JournalWriter({

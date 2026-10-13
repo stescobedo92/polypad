@@ -69,19 +69,22 @@ export class JournalWriter {
 
   /**
    * Writes every pending snapshot now, tries failed writes once more (a Windows lock may have
-   * gone) and waits for all operations to finish.
+   * gone) and waits for all operations to finish. Edits made while it waits are written too: it
+   * finishes once nothing is pending or in flight.
    */
   async flush(): Promise<void> {
-    for (const [id, current] of [...this.pending]) {
-      clearTimeout(current.timer);
-      this.fire(id);
-    }
-    await Promise.all(this.chains.values());
-    for (const [id, snapshot] of [...this.failed]) {
-      this.failed.delete(id);
-      this.write(id, snapshot, false);
-    }
-    await Promise.all(this.chains.values());
+    do {
+      for (const [id, current] of [...this.pending]) {
+        clearTimeout(current.timer);
+        this.fire(id);
+      }
+      for (const [id, snapshot] of [...this.failed]) {
+        this.failed.delete(id);
+        this.write(id, snapshot, false);
+      }
+      await Promise.all(this.chains.values());
+      // Typing does not stop for a flush, and a write that just failed is owed its second try.
+    } while (this.pending.size > 0 || this.failed.size > 0 || this.chains.size > 0);
   }
 
   /** Waits for the operations already started, without forcing pending snapshots. */
