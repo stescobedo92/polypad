@@ -21,6 +21,78 @@ afterEach(() => {
     session.dispose();
   });
   vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+/** The event types `target` still listens to, among those added after this call. */
+function listenersLeftOn(target: EventTarget): () => string[] {
+  const added = vi.spyOn(target, "addEventListener");
+  const removed = vi.spyOn(target, "removeEventListener");
+  return () =>
+    added.mock.calls
+      .filter(
+        ([type, listener]) =>
+          !removed.mock.calls.some(([gone, by]) => gone === type && by === listener),
+      )
+      .map(([type]) => type);
+}
+
+describe("a session that cannot start", () => {
+  const refused = new Error("events are not allowed");
+
+  /** Starts a session whose backend refuses flush requests; `prepare` sets up the rest. */
+  function startRefused(prepare: (backend: FakeBackend) => void = () => undefined) {
+    const backend = new FakeBackend();
+    backend.onFlushRequested = () => Promise.reject(refused);
+    prepare(backend);
+    return startSession({ ipc: backend, loadEditor: () => Promise.resolve(fakeEditor()) });
+  }
+
+  it("leaves no listener on the window, the document or the colour scheme", async () => {
+    const colourScheme = Object.assign(new EventTarget(), { matches: false });
+    vi.stubGlobal("matchMedia", () => colourScheme);
+    const left = [window, document, colourScheme].map(listenersLeftOn);
+
+    await expect(startRefused()).rejects.toBe(refused);
+
+    expect(left.map((listeners) => listeners())).toEqual([[], [], []]);
+  });
+
+  it("stops the subscription the backend did accept", async () => {
+    const stop = vi.fn();
+
+    await expect(
+      startRefused((backend) => {
+        backend.onScriptsChanged = () => Promise.resolve(stop);
+      }),
+    ).rejects.toBe(refused);
+
+    await vi.waitFor(() => {
+      expect(stop).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("stops a subscription accepted only after another was refused", async () => {
+    const stop = vi.fn();
+    let accept: () => void = () => undefined;
+
+    await expect(
+      startRefused((backend) => {
+        backend.onScriptsChanged = () =>
+          new Promise((resolve) => {
+            accept = () => {
+              resolve(stop);
+            };
+          });
+      }),
+    ).rejects.toBe(refused);
+    expect(stop).not.toHaveBeenCalled();
+    accept();
+
+    await vi.waitFor(() => {
+      expect(stop).toHaveBeenCalledOnce();
+    });
+  });
 });
 
 describe("starting a session", () => {

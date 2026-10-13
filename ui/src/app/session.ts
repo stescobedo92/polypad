@@ -116,7 +116,15 @@ export async function startSession(deps: SessionDeps): Promise<AppSession> {
   applyTheme();
   darkScheme?.addEventListener("change", applyTheme);
 
-  const stopListening = await Promise.all([
+  /** Stops reacting to the window. */
+  const detach = () => {
+    disposed = true;
+    window.removeEventListener("focus", onFocus);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+    darkScheme?.removeEventListener("change", applyTheme);
+  };
+
+  const subscriptions = [
     ipc.onScriptsChanged(reconcile),
     ipc.onFlushRequested(() => {
       // Everything still in memory goes to disk before the window may close: unsaved work, the
@@ -131,7 +139,24 @@ export async function startSession(deps: SessionDeps): Promise<AppSession> {
           ipc.readyToClose().catch(warn("cannot confirm the close"));
         });
     }),
-  ]);
+  ];
+  let stopListening: (() => void)[];
+  try {
+    stopListening = await Promise.all(subscriptions);
+  } catch (error) {
+    // Nobody is handed a session to dispose, so what was set up so far is undone here. A
+    // subscription the backend accepts later is stopped as soon as it is.
+    detach();
+    for (const subscription of subscriptions) {
+      void subscription.then(
+        (stop) => {
+          stop();
+        },
+        () => undefined,
+      );
+    }
+    throw error;
+  }
 
   return {
     workspace,
@@ -148,10 +173,7 @@ export async function startSession(deps: SessionDeps): Promise<AppSession> {
     },
 
     dispose() {
-      disposed = true;
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      darkScheme?.removeEventListener("change", applyTheme);
+      detach();
       stopListening.forEach((stop) => {
         stop();
       });
