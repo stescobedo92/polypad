@@ -573,6 +573,27 @@ describe("changes made by other programs", () => {
     expect(backend.session?.tabs).toEqual([{ bufferId: "b1", path: "renamed/b.ppad" }]);
   });
 
+  it("mark a tab missing when its script was renamed onto one that is already open", async () => {
+    const { backend, buffers, workspace, tab } = setup();
+    backend.write("a.ppad", "a");
+    backend.write("b.ppad", "b");
+    await workspace.openScript("a.ppad");
+    await workspace.openScript("b.ppad");
+    // Another program moves a.ppad over b.ppad.
+    const file = backend.files.get("a.ppad");
+    backend.remove("a.ppad");
+    if (file !== undefined) backend.files.set("b.ppad", file);
+
+    await workspace.reconcile({
+      paths: [],
+      renamed: [{ from: "a.ppad", to: "b.ppad" }],
+      rescan: false,
+    });
+
+    expect(tab("b1")).toEqual(expect.objectContaining({ path: "a.ppad", disk: "missing" }));
+    expect(buffers.text("b2")).toBe("a");
+  });
+
   it("check every open script on a rescan", async () => {
     const { backend, workspace, tab } = setup();
     backend.write("a.ppad", "a");
@@ -785,5 +806,21 @@ describe("moving scripts and folders", () => {
     await workspace.reconcile({ paths: [], renamed: [{ from: "old", to: "new" }], rescan: false });
 
     expect(tab("b1")).toEqual(expect.objectContaining({ path: "new/a.ppad", disk: "same" }));
+  });
+
+  it("marks a tab missing when its folder was renamed onto one whose script is already open", async () => {
+    const { backend, workspace, tab } = setup();
+    backend.write("old/a.ppad", "from old");
+    backend.write("new/a.ppad", "from new");
+    await workspace.openScript("old/a.ppad");
+    await workspace.openScript("new/a.ppad");
+    // Another program puts the folder "old" in the place of "new".
+    const file = backend.files.get("old/a.ppad");
+    backend.removeFolder("old");
+    if (file !== undefined) backend.files.set("new/a.ppad", file);
+
+    await workspace.reconcile({ paths: [], renamed: [{ from: "old", to: "new" }], rescan: false });
+
+    expect(tab("b1")).toEqual(expect.objectContaining({ path: "old/a.ppad", disk: "missing" }));
   });
 });

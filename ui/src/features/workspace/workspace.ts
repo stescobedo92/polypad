@@ -457,14 +457,22 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
     };
   }
 
-  /** Moves the affected tabs; returns their new paths. */
+  /**
+   * Moves the affected tabs. Returns where each of them is now: its new path, or the one it
+   * keeps because another tab already shows where it would go.
+   */
   function moveTabs(from: ScriptPath, to: ScriptPath): ScriptPath[] {
     const moved: ScriptPath[] = [];
+    const stayed: ScriptPath[] = [];
     for (const tab of store.getState().tabs) {
-      const target = tab.path === null ? null : movedPath(tab.path, from, to);
+      if (tab.path === null) continue;
+      const target = movedPath(tab.path, from, to);
       if (target === null) continue;
       // Another tab already shows the target: leave this one to the disk check.
-      if (store.getState().tabs.some((other) => other.path === target)) continue;
+      if (store.getState().tabs.some((other) => other.path === target)) {
+        stayed.push(tab.path);
+        continue;
+      }
       updateTab(tab.id, (latest) => ({ ...latest, path: target }));
       // Re-journals unsaved work under its new path.
       refreshModified(tab.id);
@@ -473,7 +481,7 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
     if (moved.length > 0) {
       persistSession();
     }
-    return moved;
+    return [...moved, ...stayed];
   }
 
   function addTab(tab: Tab): void {
@@ -630,11 +638,11 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
     },
 
     async reconcile(changes) {
-      const moved = changes.renamed.flatMap(({ from, to }) => moveTabs(from, to));
+      const renamed = changes.renamed.flatMap(({ from, to }) => moveTabs(from, to));
       const mentioned = new Set<ScriptPath>([
         ...changes.paths,
         ...changes.renamed.map((pair) => pair.to),
-        ...moved,
+        ...renamed,
       ]);
       const affected = store
         .getState()
