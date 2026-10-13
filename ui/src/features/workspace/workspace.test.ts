@@ -327,6 +327,21 @@ describe("saving untitled scripts", () => {
     await expect(workspace.saveAs("b1", null, "taken.ppad")).rejects.toBeInstanceOf(CommandFailure);
     expect(tab("b1")?.path).toBeNull();
   });
+
+  it("is not an error when the tab was closed while its script was being created", async () => {
+    const { backend, buffers, workspace, state } = setup();
+    workspace.newScript("go");
+    buffers.edit("b1", "package main");
+
+    const saving = workspace.saveAs("b1", null, "scratch");
+    await workspace.discardAndClose("b1");
+
+    await expect(saving).resolves.toBe("scratch.ppad");
+    expect(state().tabs).toEqual([]);
+    expect(backend.code("scratch.ppad")).toBe("package main");
+    await workspace.settled();
+    expect(backend.session?.tabs).toEqual([]);
+  });
 });
 
 describe("header changes", () => {

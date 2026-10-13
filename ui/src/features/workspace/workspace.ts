@@ -602,6 +602,8 @@ export function createWorkspace(deps: WorkspaceDeps): Workspace {
       if (tab === undefined) throw new Error(`no tab ${id}`);
       const document = documentOf(tab);
       const created = await ipc.createScript(parent, scriptFileName(name), document);
+      // Closed while the script was being created: it exists and there is no tab to update.
+      if (find(id) === undefined) return created.path;
       updateTab(id, (latest) => ({
         ...latest,
         path: created.path,
