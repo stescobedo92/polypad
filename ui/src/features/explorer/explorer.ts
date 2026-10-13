@@ -75,8 +75,29 @@ export function createExplorer(deps: { ipc: ExplorerIpc; workspace: Workspace })
     store.setState((state) => ({ expanded: new Set(state.expanded).add(path) }));
   }
 
+  // Listings are numbered as they are asked for. One that arrives after a newer one is shown,
+  // or after another folder is, would bring stale entries back, so it is dropped.
+  let asked = 0;
+  let shown = 0;
+
   async function reload(): Promise<void> {
-    store.setState({ tree: await ipc.listScripts() });
+    asked += 1;
+    const listing = asked;
+    const tree = await ipc.listScripts();
+    if (listing <= shown) return;
+    shown = listing;
+    store.setState({ tree });
+  }
+
+  function load(folder: ScriptsFolder | null, unavailableFolder: string | null): void {
+    // Listings still on their way are of what was shown until now.
+    shown = asked;
+    store.setState({
+      folderName: folder?.name ?? null,
+      tree: folder?.tree ?? null,
+      unavailableFolder,
+      expanded: new Set(),
+    });
   }
 
   /** After `from` moved to `to`: tabs follow and expanded folders keep their state. */
@@ -91,14 +112,7 @@ export function createExplorer(deps: { ipc: ExplorerIpc; workspace: Workspace })
   return {
     store,
 
-    load(folder, unavailableFolder) {
-      store.setState({
-        folderName: folder?.name ?? null,
-        tree: folder?.tree ?? null,
-        unavailableFolder,
-        expanded: new Set(),
-      });
-    },
+    load,
 
     reload,
 
@@ -164,12 +178,7 @@ export function createExplorer(deps: { ipc: ExplorerIpc; workspace: Workspace })
           await workspace.discardAndClose(tab.id);
         }
       }
-      store.setState({
-        folderName: folder.name,
-        tree: folder.tree,
-        unavailableFolder: null,
-        expanded: new Set(),
-      });
+      load(folder, null);
       return "changed";
     },
   };

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { CommandFailure } from "../../shared/ipc";
 import { FakeBackend, headerFor } from "../../test/fakeBackend";
@@ -25,6 +25,19 @@ async function setup() {
   return { backend, buffers, workspace, explorer, names, tabs };
 }
 
+/** Holds listings back, as a slow disk would; calling an entry lets that listing arrive. */
+function holdListings(backend: FakeBackend): (() => void)[] {
+  const list = backend.listScripts.bind(backend);
+  const held: (() => void)[] = [];
+  backend.listScripts = async () => {
+    // What the folder holds when the listing is asked for.
+    const tree = await list();
+    await new Promise<void>((resolve) => held.push(resolve));
+    return tree;
+  };
+  return held;
+}
+
 describe("the scripts tree", () => {
   it("shows the folder it was loaded with and picks up changes on reload", async () => {
     const { backend, explorer, names } = await setup();
@@ -46,6 +59,44 @@ describe("the scripts tree", () => {
     explorer.toggle("reports");
 
     expect(explorer.store.getState().expanded.has("reports")).toBe(false);
+  });
+});
+
+describe("listings that overlap", () => {
+  async function twoListings() {
+    const context = await setup();
+    const held = holdListings(context.backend);
+    context.backend.write("a.ppad", "a");
+    const older = context.explorer.reload();
+    context.backend.write("b.ppad", "b");
+    const newer = context.explorer.reload();
+    await vi.waitFor(() => {
+      expect(held).toHaveLength(2);
+    });
+    return { ...context, held, older, newer };
+  }
+
+  it("keep the newest one when an older one arrives after it", async () => {
+    const { held, older, newer, names } = await twoListings();
+
+    held[1]?.();
+    await newer;
+    held[0]?.();
+    await older;
+
+    expect(names()).toEqual(["a.ppad", "b.ppad"]);
+  });
+
+  it("show each one as it arrives when they arrive in order", async () => {
+    const { held, older, newer, names } = await twoListings();
+
+    held[0]?.();
+    await older;
+    expect(names()).toEqual(["a.ppad"]);
+    held[1]?.();
+    await newer;
+
+    expect(names()).toEqual(["a.ppad", "b.ppad"]);
   });
 });
 
@@ -179,6 +230,27 @@ describe("choosing another scripts folder", () => {
     );
     expect(explorer.store.getState().tree?.entries.map((e) => e.name)).toEqual(["x.ppad"]);
     expect(tabs().map((tab) => tab.path)).toEqual([null]);
+  });
+
+  it("drops a listing of the previous folder that arrives after the switch", async () => {
+    const { backend, explorer, names } = await setup();
+    backend.write("a.ppad", "a");
+    const held = holdListings(backend);
+    const stale = explorer.reload();
+    await vi.waitFor(() => {
+      expect(held).toHaveLength(1);
+    });
+    backend.nextPickedFolder = {
+      name: "Other",
+      tree: { entries: [{ kind: "script", name: "x.ppad", path: "x.ppad" }], truncated: false },
+    };
+
+    await explorer.chooseFolder("Choose");
+    held[0]?.();
+    await stale;
+
+    expect(explorer.store.getState().folderName).toBe("Other");
+    expect(names()).toEqual(["x.ppad"]);
   });
 
   it("changes nothing when the dialog is cancelled", async () => {
