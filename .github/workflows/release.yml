@@ -1,0 +1,215 @@
+name: Release
+
+# How a release happens (docs/adr/0009):
+#   1. On every push to main, release-please refreshes the release pull request: the next
+#      SemVer version, derived from the Conventional Commits since the last release, and the
+#      changelog.
+#   2. Merging that pull request makes release-please tag the commit and draft the release.
+#   3. The installers are built for every platform and attached to the draft; only then is the
+#      release published.
+# Pull requests that touch the packaging, and manual runs without a tag, stop after building
+# the installers (dry run).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/release/**
+      - src-tauri/tauri.conf.json
+      - src-tauri/icons/**
+      - src-tauri/windows/**
+      # Pins the Tauri CLI, which is the bundler.
+      - package.json
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: >-
+          Recovery only: tag of a release that is still a draft (for example v1.2.3), to build
+          and publish it again. Leave empty for a dry run.
+        type: string
+        default: ""
+
+# Each job asks for exactly what it needs.
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  # A release in flight is never cancelled; a superseded dry run is.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    # Named explicitly because only then does the runner add `-o pipefail`: several steps pipe
+    # a release script into tee, and a failed check must fail the step.
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+  # Tauri v2 build dependencies on Debian/Ubuntu (tauri.app/start/prerequisites), plus what
+  # its AppImage bundler needs.
+  LINUX_DEPS: >-
+    libwebkit2gtk-4.1-dev build-essential file libxdo-dev libssl-dev
+    libayatana-appindicator3-dev librsvg2-dev patchelf
+
+# Third-party actions are pinned to commit SHAs; the comment records the release tag.
+# Nothing here restores a cache: installers are built from a clean runner.
+jobs:
+  release-please:
+    name: Release pull request and tag
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # release branch, tag and draft release
+      pull-requests: write # release pull request
+      issues: write # labels that track the state of the release pull request
+      actions: write # start CI on the release branch, see below
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # Configured by release-please-config.json and .release-please-manifest.json.
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+      # Pull requests opened with GITHUB_TOKEN trigger no workflow, so the release pull
+      # request would never be tested. workflow_dispatch is the documented exception.
+      - name: Run CI on the release pull request
+        if: steps.release.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_BRANCH"
+
+  bundle:
+    name: Bundle (${{ matrix.platform }})
+    needs: release-please
+    # A push builds only when it has just been tagged; every other event is a dry run or a
+    # recovery, and release-please is skipped for them.
+    if: >-
+      ${{ !cancelled() && (github.event_name != 'push'
+      || needs.release-please.outputs.release_created == 'true') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # What each platform builds is defined in scripts/release/assets.mjs.
+        include:
+          - platform: windows-x64
+            runner: windows-latest
+          - platform: macos-arm64
+            runner: macos-latest
+          # Cross-compiled on Apple Silicon.
+          - platform: macos-x64
+            runner: macos-latest
+          # Ubuntu 22.04 is the oldest base with WebKitGTK 4.1, i.e. the glibc floor for Linux.
+          - platform: linux-x64
+            runner: ubuntu-22.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      PLATFORM: ${{ matrix.platform }}
+      # Empty for a dry run, which builds the commit that triggered it.
+      RELEASE_TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
+          persist-credentials: false
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      # Fails here, before compiling anything, if the tag is not the version in Cargo.toml.
+      - name: Plan the build
+        id: plan
+        run: >-
+          node scripts/release/cli.mjs plan --platform "$PLATFORM" --tag "$RELEASE_TAG"
+          | tee -a "$GITHUB_OUTPUT"
+      - name: Install Rust toolchain from rust-toolchain.toml
+        env:
+          TARGET: ${{ steps.plan.outputs.target }}
+        run: |
+          rustup toolchain install
+          rustup target add "$TARGET"
+      - run: pnpm install --frozen-lockfile
+      - name: Build installers
+        env:
+          TARGET: ${{ steps.plan.outputs.target }}
+          BUNDLES: ${{ steps.plan.outputs.bundles }}
+        run: pnpm tauri build --target "$TARGET" --bundles "$BUNDLES" -- --locked
+      - name: Name the installers
+        env:
+          TARGET: ${{ steps.plan.outputs.target }}
+        run: >-
+          node scripts/release/cli.mjs collect --platform "$PLATFORM" --tag "$RELEASE_TAG"
+          --bundle-dir "target/$TARGET/release/bundle" --out-dir dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: installers-${{ matrix.platform }}
+          path: dist/
+          if-no-files-found: error
+          # Installers are compressed already.
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    name: Publish
+    needs: [release-please, bundle]
+    if: >-
+      ${{ !cancelled() && needs.bundle.result == 'success'
+      && (needs.release-please.outputs.release_created == 'true' || inputs.tag != '') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # attach the installers and publish the draft release
+      id-token: write # sign the provenance attestation
+      attestations: write # store the provenance attestation
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
+    steps:
+      # What users already downloaded must never change under them.
+      - name: Check that the release is still a draft
+        run: |
+          draft="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+          if [ "$draft" != "true" ]; then
+            echo "::error::Release $RELEASE_TAG is already published; its assets are final."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: installers-*
+          path: dist
+          merge-multiple: true
+      # Refuses to go on unless dist/ holds exactly the installers of this version.
+      - name: Verify the installers and write their checksums
+        id: assets
+        run: >-
+          node scripts/release/cli.mjs checksums --dir dist --tag "$RELEASE_TAG"
+          | tee -a "$GITHUB_OUTPUT"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: ${{ steps.assets.outputs.checksums }}
+      - name: Attach the installers and publish
+        env:
+          TITLE: ${{ steps.assets.outputs.title }}
+          PRERELEASE: ${{ steps.assets.outputs.prerelease }}
+        run: |
+          gh release upload "$RELEASE_TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --title "$TITLE" --prerelease="$PRERELEASE" --draft=false
