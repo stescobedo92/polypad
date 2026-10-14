@@ -57,6 +57,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Sergio Triana Escobedo",
     "category": "DeveloperTool",
     "shortDescription": "Polyglot code scratchpad",
     "icon": [
@@ -65,6 +66,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "-"
+    }
   }
 }

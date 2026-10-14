@@ -19,6 +19,7 @@
 | Frontend checks | `pnpm ui:check` (typecheck, lint, format, tests) |
 | Regenerate IPC bindings | `pnpm bindings` |
 | Dependency policy | `cargo deny check` · `cargo audit` |
+| Release script tests | `pnpm release:test` |
 
 Use the pinned Tauri CLI through `pnpm tauri`, not a globally installed `cargo tauri`.
 Set `POLYPAD_LOG` (for example `POLYPAD_LOG=polypad=debug`) to change the log filter. Logs, and
@@ -45,6 +46,36 @@ Set `POLYPAD_LOG` (for example `POLYPAD_LOG=polypad=debug`) to change the log fi
 
 The kernel protocol and the reference kernel arrive in Phase 2; this section will then describe
 how to add a kernel in at most ten steps.
+
+## Releasing
+
+Versions follow [SemVer](https://semver.org/) and are derived from the commit history
+(docs/adr/0009); nobody edits a version number by hand.
+
+1. Merge work into `main` as usual. The **Release** workflow keeps a pull request titled
+   `chore(main): release X.Y.Z` up to date with the next version and `CHANGELOG.md`.
+2. To ship, check that pull request (CI runs on its branch) and merge it.
+3. The workflow tags `vX.Y.Z`, builds the installers for every platform and publishes the
+   release `polypad-vX.Y.Z`. The release stays a draft until the last installer is attached.
+
+| Commit | Effect on the version |
+|---|---|
+| `fix: …` | patch: `0.2.0` → `0.2.1` |
+| `feat: …` | minor: `0.2.1` → `0.3.0` |
+| `feat!: …`, or a `BREAKING CHANGE:` footer | major; minor while the version is `0.x` |
+| `docs`, `chore`, `refactor`, `test`, `ci`, `build` | none, and no changelog entry |
+
+- **Pre-release:** force the version with a footer; it is published as a GitHub pre-release
+  and ships no `.msi`.
+  `git commit --allow-empty -m "chore: release 0.3.0-beta.1" -m "Release-As: 0.3.0-beta.1"`
+- **Dry run:** a pull request that touches the packaging builds every installer without
+  publishing, and so does `gh workflow run release.yml --ref <branch>`. The installers are
+  attached to the run as artifacts.
+- **A build failed during a release:** fix the cause and choose *Re-run failed jobs* on that
+  run; *Re-run all jobs* would find nothing left to release. If the run has expired, start the
+  workflow by hand with the tag of the draft release.
+- **A new platform:** add it to `PLATFORMS` in `scripts/release/assets.mjs` and to the matrix in
+  `.github/workflows/release.yml`.
 
 ## Conventions
 

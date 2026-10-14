@@ -12,7 +12,8 @@
     "dev": "tauri dev",
     "build": "tauri build",
     "bindings": "cargo test -p polypad --lib -- --ignored --exact ipc::tests::export",
-    "ui:check": "pnpm --dir ui typecheck && pnpm --dir ui lint && pnpm --dir ui format:check && pnpm --dir ui test"
+    "ui:check": "pnpm --dir ui typecheck && pnpm --dir ui lint && pnpm --dir ui format:check && pnpm --dir ui test",
+    "release:test": "node --test \"scripts/**/*.test.mjs\""
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.12.0"
